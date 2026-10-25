@@ -1,0 +1,1 @@
+Synthetic data with the real headers. Markers: user_id 9999 = orphan; s_49 = late event (Sep 2025); first and last row are an exact duplicate (same event_key). Purchase rows in Phase 2 get matching order rows in docker/mysql/init keyed by (user_id, session_id).

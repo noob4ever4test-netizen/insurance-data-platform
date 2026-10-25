@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "User event",
+  "type": "object",
+  "required": ["event_time", "user_id", "session_id", "event_type", "channel", "premium_amount"],
+  "properties": {
+    "event_time": {
+      "type": "string",
+      "format": "clickhouse-datetime",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]) ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$",
+      "description": "YYYY-MM-DD HH:MM:SS; UTC by default. Register the clickhouse-datetime format checker for calendar validation."
+    },
+    "user_id": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+    "session_id": {"type": "string"},
+    "event_type": {"type": "string", "enum": ["purchase", "policy_click", "quote_view"]},
+    "channel": {"type": "string"},
+    "premium_amount": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807}
+  },
+  "additionalProperties": true
+}

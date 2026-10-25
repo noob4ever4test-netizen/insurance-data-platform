@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "azki-pipeline"
+version = "0.1.0"
+description = "ClickHouse-native insurance event pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "clickhouse-cityhash>=1.0.2.4,<1.1",
+    "clickhouse-connect>=0.8",
+    "confluent-kafka>=2.6",
+    "jsonschema>=4.23",
+    "pydantic>=2.9",
+]
+
+[project.optional-dependencies]
+integration = ["testcontainers>=4.9"]
+spark = ["pyspark>=3.5,<4"]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.9", "sqlglot>=26"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "--strict-markers --strict-config"
+markers = [
+    "unit: isolated unit tests without Docker",
+    "contract: static contracts without Docker",
+    "integration: tests using Testcontainers",
+    "e2e: tests using the full Compose stack",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

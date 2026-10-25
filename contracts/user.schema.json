@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "User",
+  "type": "object",
+  "required": ["user_id", "signup_date", "city", "device_type"],
+  "properties": {
+    "user_id": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+    "signup_date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "city": {"type": "string"},
+    "device_type": {"type": "string"}
+  },
+  "additionalProperties": true
+}

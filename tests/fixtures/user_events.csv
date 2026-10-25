@@ -1,0 +1,51 @@
+event_time,user_id,session_id,event_type,channel,premium_amount
+2025-10-16 17:17:33,3,s_1,policy_click,Google Ads,9861116
+2025-10-27 00:20:52,2,s_2,policy_click,SMS,8892241
+2025-10-25 15:12:19,4,s_3,purchase,Google Ads,34101469
+2025-10-21 07:12:21,2,s_4,purchase,Google Ads,41980155
+2025-10-21 14:36:02,1,s_5,quote_view,Google Ads,19981313
+2025-10-29 07:14:26,1,s_6,quote_view,SMS,31620776
+2025-10-03 09:46:32,4,s_7,purchase,SMS,13937210
+2025-10-15 01:25:09,7,s_8,purchase,SMS,12904903
+2025-10-28 17:09:45,5,s_9,quote_view,Organic,11915951
+2025-10-29 05:36:47,4,s_10,policy_click,Google Ads,41758508
+2025-10-04 01:09:16,1,s_11,quote_view,Organic,38313812
+2025-10-26 19:29:56,7,s_12,policy_click,Social,44296391
+2025-10-22 23:59:53,6,s_13,policy_click,Organic,17063942
+2025-10-12 20:23:34,2,s_14,quote_view,Referral,40245340
+2025-10-25 00:51:08,6,s_15,quote_view,Social,24323176
+2025-10-30 13:29:19,2,s_16,purchase,SMS,33059747
+2025-10-09 00:11:41,6,s_17,purchase,Social,33299697
+2025-10-02 21:40:47,2,s_18,quote_view,SMS,26055239
+2025-10-17 12:16:16,6,s_19,quote_view,Social,43916108
+2025-10-23 03:31:03,2,s_20,purchase,Referral,36816200
+2025-10-04 03:43:49,1,s_21,quote_view,Referral,43785314
+2025-10-22 15:12:32,5,s_22,quote_view,Social,28287128
+2025-10-02 02:17:15,8,s_23,policy_click,Organic,12858165
+2025-10-24 23:11:38,1,s_24,purchase,Referral,13679875
+2025-10-13 00:29:31,7,s_25,policy_click,Social,10407719
+2025-10-09 01:49:50,8,s_26,policy_click,SMS,23645468
+2025-10-07 15:31:49,7,s_27,quote_view,Referral,32870077
+2025-10-18 09:59:55,7,s_28,purchase,Organic,10569008
+2025-10-09 13:18:30,3,s_29,purchase,Organic,5809538
+2025-10-24 13:01:21,3,s_30,policy_click,Referral,5274717
+2025-10-08 01:43:31,7,s_31,quote_view,Referral,43006516
+2025-10-16 11:12:34,3,s_32,quote_view,SMS,8623401
+2025-10-23 04:01:42,9,s_33,policy_click,Social,31775016
+2025-10-20 03:10:59,2,s_34,policy_click,Social,9177380
+2025-10-10 06:04:34,2,s_35,purchase,Social,15891982
+2025-10-06 08:04:32,6,s_36,quote_view,Google Ads,11870578
+2025-10-01 00:16:18,3,s_37,quote_view,Google Ads,29401448
+2025-10-30 19:03:20,1,s_38,purchase,Organic,30248325
+2025-10-08 05:04:25,5,s_39,policy_click,SMS,29438594
+2025-10-24 00:25:35,2,s_40,purchase,Social,36272023
+2025-10-24 07:42:03,8,s_41,policy_click,Google Ads,14671561
+2025-10-05 23:03:25,6,s_42,quote_view,Referral,37119774
+2025-10-08 20:05:22,9,s_43,purchase,Organic,40450753
+2025-10-18 13:28:19,3,s_44,quote_view,SMS,6814790
+2025-10-26 15:17:31,5,s_45,quote_view,Google Ads,22523144
+2025-10-26 03:58:34,6,s_46,purchase,Referral,19951368
+2025-10-26 20:30:54,9,s_47,quote_view,Referral,19968073
+2025-10-15 10:00:00,9999,s_48,quote_view,SMS,7000000
+2025-09-30 23:59:59,3,s_49,purchase,Organic,12000000
+2025-10-16 17:17:33,3,s_1,policy_click,Google Ads,9861116
