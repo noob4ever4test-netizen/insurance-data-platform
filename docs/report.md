@@ -54,3 +54,47 @@
   `(user_id, session_id)` with order `created_at` within one hour of event time.
   There is no event `order_id` and no user `updated_at`; use Debezium `ts_ms` for CDC
   versions/lag. Unknown users in fixtures remain intentional.
+
+### Phase 1: contracts and fallback producer
+
+- Implemented schema loading and validation with calendar-aware CSV/UTC format checkers.
+  CSV timestamps retain their original contract; wire validation selects a separate UTC
+  timestamp definition within the same schema. No Phase 0 timestamp assertions were relaxed.
+  `schema_diff` returns sorted added/removed fields, changed field types, and required-field
+  changes. Union-type order does not count as a type change.
+- The fallback producer streams CSV rows, converts IDs/premiums to integers, validates them,
+  normalizes timestamps, and sends UTF-8 JSON keyed by the UTF-8 user ID. An explicit
+  timezone overrides `EVENTS_TZ`; UTC is the default. It retains source order, late events,
+  unknown users, exact duplicates, and extra columns for later pipeline/DQ handling.
+- Invalid headers, field counts, numeric values, timestamps, enum values, premiums, and
+  CSV quoting are collected with a source line number and reason. Recoverable parser errors
+  do not prevent subsequent valid rows from publishing. Raw rows are not stored in the
+  result. Kafka errors remain operational failures: delivery callbacks are checked, flush
+  must drain the queue, and unresolved messages raise a timeout. The CLI enables producer
+  idempotence and `acks=all`, prints a JSON summary, and returns nonzero for rejected rows.
+- Run the fallback path after a broker is available:
+
+  ```sh
+  uv run python -m azki_pipeline.producer tests/fixtures/user_events.csv \
+    --bootstrap-servers localhost:9092 --timezone UTC
+  ```
+
+- `apply_sql` executes numbered files in numeric order, splits statements with SQLGlot's
+  ClickHouse parser, and applies database overrides to parsed identifiers, dictionary source
+  databases, and dictionary-function references. It preserves unrelated string literals,
+  including embedded semicolons; no DDL is assembled by concatenation. Invalid override
+  identifiers are rejected and server errors propagate. SQLGlot is now a runtime dependency.
+  Numbered runner fixtures live under `sql/test_fixtures/`; the default deployment runner
+  scans only the top-level `sql/` directory.
+- TDD evidence: new tests initially reported three missing-symbol collection errors.
+  The first implementation passed all 62 selected tests (including existing U20 cases).
+  A further malformed-quoting regression failed because DictReader retained the previous
+  successful line number; using the underlying parser's physical line number fixed it.
+  One test input was corrected before implementation: CSV serializes a null channel as
+  an allowed empty string, so the invalid-input case now uses a null user ID. No existing
+  tests were weakened, removed, or skipped.
+- Scope follows the Phase 1 executable prompt: U01–U06, U19, and U20. The heading also
+  mentions C10, but it requires the deployment table DDL scheduled for Phase 3. C10 remains
+  explicitly pending rather than asserting against empty files or introducing Phase 3 SQL.
+  All producer and SQL-client checks use test doubles; broker/server integration remains
+  for later phases. Final layer results: 77 unit tests and 19 contract tests, with lint clean.

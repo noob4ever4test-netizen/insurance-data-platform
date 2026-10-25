@@ -13,6 +13,7 @@ dependencies = [
     "confluent-kafka>=2.6",
     "jsonschema>=4.23",
     "pydantic>=2.9",
+    "sqlglot>=26",
 ]
 
 [project.optional-dependencies]
@@ -20,7 +21,7 @@ integration = ["testcontainers>=4.9"]
 spark = ["pyspark>=3.5,<4"]
 
 [dependency-groups]
-dev = ["pytest>=8.3", "ruff>=0.9", "sqlglot>=26"]
+dev = ["pytest>=8.3", "ruff>=0.9"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

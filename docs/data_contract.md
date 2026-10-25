@@ -10,6 +10,15 @@
 | channel | LowCardinality String: Google Ads, Organic, Referral, Social, SMS | |
 | premium_amount | Int64 (Rials) | present on all event types; `>= 0` |
 
+The CSV contract keeps the space-separated timestamp shown above. The Python fallback producer
+validates that representation before interpreting it in `EVENTS_TZ` (default `UTC`), with
+`--timezone` taking precedence. Kafka JSON carries canonical UTC `YYYY-MM-DDTHH:MM:SSZ` instead.
+`validate_event(row)` checks CSV-typed records; `validate_event(row, wire=True)` selects the
+`$defs.utc_event_time` definition in `user_event.schema.json` and checks normalized JSON.
+Both custom timestamp format checkers validate calendar dates. Other fields have the same
+contract in both representations. New columns remain available for later drift detection;
+an unknown `event_type` still fails the enum and is reported as a rejected producer row.
+
 **No `event_id` column.** Derive a deterministic key:
 `event_key = cityHash64(user_id, session_id, event_time, event_type)` with ClickHouse argument types
 `Int64, String, DateTime, String`. Python uses `clickhouse-cityhash` (CityHash v1.0.2) for UTF-8 strings,

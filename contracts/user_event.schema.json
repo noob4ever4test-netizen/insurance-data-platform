@@ -2,6 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "User event",
   "type": "object",
+  "$defs": {
+    "utc_event_time": {
+      "type": "string",
+      "format": "utc-datetime",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "Normalized Kafka JSON timestamp. validate_event(wire=True) selects this definition and enables its calendar checker."
+    }
+  },
   "required": ["event_time", "user_id", "session_id", "event_type", "channel", "premium_amount"],
   "properties": {
     "event_time": {

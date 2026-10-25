@@ -6,13 +6,13 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived â€
 ## Unit (`-m unit`, no Docker)
 | ID | Module | Behaviour | Status |
 |---|---|---|---|
-| U01 | contracts | valid event row passes `user_event.schema.json` | todo |
-| U02 | contracts | parametrized invalid rows fail: missing `event_time`, null `user_id`, bad timestamp, unknown `event_type`, negative `premium_amount` | todo |
+| U01 | contracts | valid event row passes `user_event.schema.json` | green |
+| U02 | contracts | parametrized invalid rows fail: missing `event_time`, null `user_id`, bad timestamp, unknown `event_type`, negative `premium_amount` | green |
 | U20 | contracts | `event_key(user_id, session_id, event_time, event_type)` is deterministic and equals the ClickHouse `cityHash64` value for a fixed vector | green |
-| U03 | producer | Kafka key = `user_id`, value = JSON matching contract | todo |
-| U04 | producer | `YYYY-MM-DD HH:MM:SS` parsed with configurable tz and emitted as UTC ISO-8601 | todo |
-| U05 | producer | malformed CSV row â†’ routed to error list, not raised | todo |
-| U06 | contracts | `schema_diff(old, new)` reports added / removed / type-changed fields | todo |
+| U03 | producer | Kafka key = `user_id`, value = JSON matching contract | green |
+| U04 | producer | `YYYY-MM-DD HH:MM:SS` parsed with configurable tz and emitted as UTC ISO-8601 | green |
+| U05 | producer | malformed CSV row â†’ routed to error list, not raised | green |
+| U06 | contracts | `schema_diff(old, new)` reports added / removed / type-changed fields | green |
 | U07 | dq.freshness | PASS / WARN / FAIL at threshold boundaries | todo |
 | U08 | dq.lag | consumer lag per partition aggregated; FAIL if any partition over threshold | todo |
 | U09 | dq.offset_gaps | detects gap from (min, max, count) per partition | todo |
@@ -25,7 +25,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived â€
 | U16 | backfill.transforms | dedupe by `event_key` (keep first); Spark `event_key` == Python `event_key` on same rows | todo |
 | U17 | backfill.transforms | missing rows = left-anti join on `event_key` vs existing keys | todo |
 | U18 | backfill.transforms | date-range filter is inclusive/exclusive as documented | todo |
-| U19 | sql_runner | applies files in numeric order; DB override substitutes correctly | todo |
+| U19 | sql_runner | applies files in numeric order; DB override substitutes correctly | green |
 | U21 | helpers.factories | event factory has contract fields and supports overrides | green |
 | U22 | helpers.factories | user factory has contract fields and supports overrides | green |
 | U23 | helpers.factories | each factory call returns independent data | green |
@@ -47,7 +47,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived â€
 | C07 | sql/*.sql | no `SELECT *` inside MVs | todo |
 | C08 | 070_governance | PII columns of order tables (`national_id`, `phone`, `plate_no`, `policy_no`) never granted to `role_analyst`; analysts only via `gov.*` | todo |
 | C09 | compose.yml | all services have healthchecks; images pinned (no `latest`) | todo |
-| C10 | contracts | ClickHouse raw table columns âŠ‡ contract fields with compatible types | todo |
+| C10 | contracts | ClickHouse raw table columns âŠ‡ contract fields with compatible types (requires Phase 3 deployment DDL) | todo |
 | C11 | contracts | schemas accept synthetic rows, enforce required fields/types/dates/enum/nonnegative premiums, and allow evolving dimensions | green |
 
 ## Integration (`-m integration`, Testcontainers)
