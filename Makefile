@@ -1,7 +1,7 @@
 UV ?= $(if $(wildcard .venv/bin/uv),.venv/bin/uv,uv)
 COMPOSE = docker compose -f docker/compose.yml
 
-.PHONY: prepare up down seed test-unit test-contract test-integration test-e2e lint
+.PHONY: prepare up down apply-sql seed test-unit test-contract test-integration test-e2e lint
 
 prepare:
 	$(UV) run python -m azki_pipeline.seed --prepare-only
@@ -14,6 +14,9 @@ down:
 
 seed:
 	$(UV) run python -m azki_pipeline.seed
+
+apply-sql:
+	$(UV) run python -m azki_pipeline.sql_runner
 
 test-unit:
 	$(UV) run pytest tests/unit -m unit -q

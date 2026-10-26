@@ -159,3 +159,55 @@
   `make test-e2e` (**1 passed in 27.70 seconds**) with the registered default connectors
   also active. Existing synthetic fixture files were unchanged; Git ignores generated
   credentials and order CSVs.
+
+### Phase 3: ClickHouse Part 1 streaming pipeline
+
+- Added numbered deployment SQL `001`–`040`: Kafka event/users engines, persisted events
+  and versioned users, parsing-error quarantine, a latest non-deleted users view,
+  a users dictionary, aggregate states, and an orphan-count/ratio view. The aggregate
+  MV is installed before the Kafka event forwarding views to prevent events bypassing
+  aggregation during deployment. Apply all SQL before enabling producers/connectors.
+- Events use UTC timestamps and a materialized CityHash key. Runtime tests compare
+  ClickHouse keys against Python for all synthetic fixture events. ReplacingMergeTree
+  deduplicates by the full event identity in ORDER BY; query FINAL for stable results.
+  Kafka topic, partition, offset, and microsecond ingestion time remain available for
+  reconciliation. Extra JSON fields are accepted; malformed JSON/type errors retain
+  the original message and error in the dead-letter table without blocking good events.
+- Debezium DATE integers are converted from epoch days; `__ts_ms` supplies the users
+  version and rewritten `__deleted` supplies tombstones. Users use one partition so
+  updates cannot strand versions in different partitions. The dictionary reads FINAL
+  rows with deleted users excluded and refreshes every 1–5 seconds. The seed command
+  now waits for Kafka snapshot completion, ClickHouse users, and dictionary values
+  matching current users before staging the event CSV. Independent writers can still
+  produce orphans, which receive `unknown` dimensions and are measured explicitly.
+- Aggregates store count, distinct users/sessions, premium sum, and premium average
+  states by the five contract dimensions. The Python fixture oracle checks every
+  bucket, including duplicates, an orphan, and late data. Reads merge states and group
+  by every dimension. Source inserts trigger the MV; later user changes and eventual
+  source deduplication cannot retroactively change those states.
+- Added `python -m azki_pipeline.reconcile YYYYMM` and numbered SQL under `sql/jobs/`.
+  The job stages one month from FINAL events using current dictionary dimensions and
+  atomically replaces that aggregate partition. Empty source months remove obsolete
+  aggregate partitions. Tests prove repeatability, late-user re-enrichment, and
+  preservation of other months. Operators must pause Kafka consumption/direct writers
+  and serialize rebuilds because the staging table is shared; the job does not enforce
+  a maintenance window. Recovery commands and the ingestion restart procedure are in
+  `docker/README.md`. Added `make apply-sql` for idempotent deployment.
+- TDD evidence: C05–C07/C10 initially produced four expected assertion failures against
+  empty SQL, and I01–I05 produced five missing-deployment failures in a real ClickHouse
+  container. Rebuild tests initially produced six missing-module failures. Additional
+  regressions demonstrated missing CLI support, unsafe rebuild database overrides,
+  premature Kafka activation, missing container-network listeners, and seed readiness
+  limited to Kafka; each was fixed after observing failure. The direct-insert fixture
+  was corrected to use timezone-aware UTC datetimes because the local driver otherwise
+  interpreted naive timestamps in the host timezone. No assertion was weakened.
+- I11–I13 use a real KRaft Testcontainer and ClickHouse Kafka engines; E02–E03 use
+  isolated Compose connectors/topics/databases and the real Debezium/spooldir paths.
+  E02 reconciles fixture duplicates and checks the expected orphan ratio; E03 verifies
+  synthetic MySQL inserts, updates, deletes, and dictionary enrichment. Tests use
+  polling, never read Kafka tables directly, and clean up their connectors/databases.
+  C04 is now a normal passing assertion. Phase 4–7 implementation remains pending.
+- Final verification: `make test-unit` **101 passed**, `make test-contract` **34 passed**,
+  `make test-integration` **10 passed**, `make test-e2e` **3 passed**, and `make lint`
+  passed. No tests were skipped or marked expected-failure in this run. Integration
+  completed in 29.85 seconds; E2E completed in 50.78 seconds.

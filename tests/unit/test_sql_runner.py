@@ -1,5 +1,5 @@
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 import sqlglot
@@ -64,3 +64,15 @@ def test_U19_server_errors_stop_execution():
         apply_sql(client, FIXTURES)
 
     assert client.command.call_count == 1
+
+
+@pytest.mark.unit
+def test_U19_cli_deploys_and_closes_client():
+    from azki_pipeline.sql_runner import main
+
+    with patch("azki_pipeline.sql_runner.clickhouse_connect.get_client") as connect:
+        assert main(["--sql-dir", str(FIXTURES), "--port", "18123"]) == 0
+
+    connect.assert_called_once_with(host="127.0.0.1", port=18123)
+    assert connect.return_value.command.call_count == 5
+    connect.return_value.close.assert_called_once_with()

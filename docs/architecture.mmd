@@ -1,0 +1,20 @@
+flowchart LR
+    CSV["Synthetic user_events.csv"] --> Spool["Spooldir source"]
+    MySQL["MySQL users"] --> CDC["Debezium flattened CDC"]
+    Spool --> EventsTopic["Kafka azki.user_events"]
+    CDC --> UsersTopic["Kafka mysql.azki.users"]
+    EventsTopic --> RawEvents["raw.kafka_user_events"]
+    UsersTopic --> RawUsers["raw.kafka_users"]
+    RawEvents -->|valid rows| Events["core.user_events: ReplacingMergeTree"]
+    RawEvents -->|parse errors| DLQ["dq.kafka_dead_letter"]
+    RawUsers -->|parse errors| DLQ
+    RawUsers --> Users["core.users: versioned tombstones"]
+    Users --> Latest["core.users_latest: FINAL, non-deleted"]
+    Latest --> Dictionary["core.users_dict"]
+    Dictionary -->|lookup on insert| Aggregate["mart.user_event_agg: aggregate states"]
+    Events -->|insert MV| Aggregate
+    Events -->|FINAL, one month| Rebuild["Serialized partition reconciliation"]
+    Dictionary --> Rebuild
+    Rebuild -->|atomic REPLACE PARTITION| Aggregate
+    Events --> Orphans["dq.user_event_orphans"]
+    Dictionary --> Orphans

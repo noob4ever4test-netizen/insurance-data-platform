@@ -5,6 +5,7 @@ Run from the repository root with Docker Desktop or Docker Engine and Compose v2
 ```sh
 uv sync
 make up
+make apply-sql
 make seed
 make test-e2e
 ```
@@ -16,9 +17,18 @@ initialization directory mounts the numbered SQL from `sql/mysql/` directly. The
 has snapshot/replication privileges and SELECT access to the source database.
 
 `make seed` validates and registers the MySQL connector, waits until all fixture users
-have appeared on `mysql.azki.users`, then registers spooldir and stages the synthetic
+have appeared on `mysql.azki.users` and in ClickHouse with matching dictionary dimensions,
+then registers spooldir and stages the synthetic
 event CSV by an atomic rename. Each seed invocation replays the event file; it does
-not deduplicate source events. ClickHouse ingestion and reconciliation land in Phase 3.
+not deduplicate source events. Apply SQL before seeding so downstream materialized views
+exist before the first Kafka records arrive. The event forwarding views are activated
+in `040_agg_part1.sql`, after the aggregate view has been installed.
+
+Dictionary refreshes occur every 1–5 seconds; events from independent writers that arrive
+before their users use `unknown` dimensions and require reconciliation. The seed command
+waits for both the users and dictionary before staging its CSV, and fails with a bounded
+timeout if they are incomplete. E02 uses the same readiness helper. Use `--clickhouse-host`
+and `--clickhouse-port` when the HTTP endpoint differs from `127.0.0.1:8123`.
 
 | Service | Host address | Container address |
 |---|---|---|
@@ -60,12 +70,45 @@ Connect error-tolerance and DLQ settings are also explicit in the connector conf
 The file parser's error directory is the reliable quarantine for spooldir parsing errors;
 source connector DLQ behavior should not be assumed to cover every file-level error.
 Debezium emits flattened records, source/envelope timestamp metadata, and rewritten
-delete flags. Its DATE and DATETIME fields retain Debezium logical encodings; Phase 3
-must convert them when writing ClickHouse users/order tables.
+delete flags. The users Kafka table accepts Debezium DATE values as days since the Unix
+epoch, converts them to Date, and uses `__ts_ms` as the version and `__deleted` as the
+tombstone. Users live in one partition so an attribute change cannot split user versions.
+The dictionary reads a FINAL, non-deleted view. Order-table conversion is part of Phase 4.
+
+Events use UTC DateTime, a materialized `cityHash64` key, and ReplacingMergeTree with
+microsecond ingestion timestamps. Query `core.user_events FINAL` for deduplicated results.
+The aggregate MV counts inserts, including duplicate deliveries. Read aggregate states
+with `countMerge`, `uniqMerge`, `sumMerge`, and `avgMerge`, grouping by all five dimensions.
+Malformed JSON and type errors are routed to `dq.kafka_dead_letter` with the original
+message, error, topic, partition, and offset. Additional JSON fields are accepted.
+
+To reconcile one month, stop the two ClickHouse Kafka tables and all direct event writers,
+reload the dictionary, rebuild the partition, then reattach both tables. For example,
+with no direct writers active:
+
+```sh
+docker compose -f docker/compose.yml exec -T clickhouse clickhouse-client --multiquery --query \
+  'DETACH TABLE raw.kafka_user_events; DETACH TABLE raw.kafka_users; SYSTEM RELOAD DICTIONARY core.users_dict;'
+uv run python -m azki_pipeline.reconcile 202510
+docker compose -f docker/compose.yml exec -T clickhouse clickhouse-client --multiquery --query \
+  'ATTACH TABLE raw.kafka_users; ATTACH TABLE raw.kafka_user_events;'
+```
+
+Rebuilds must run serially: they share `mart.user_event_agg_rebuild`. The job stages states
+from `core.user_events FINAL` using current dictionary values, then atomically replaces
+the requested target partition; an empty source drops that target partition. Other months
+are preserved. A failed staging step leaves the target untouched; rerun the same month to
+retry. Always reattach ingestion tables after a failed job. Kafka retains records while
+consumption is paused. To repair late user arrivals, first let CDC catch up in ClickHouse,
+then pause consumption, reload the dictionary, and rebuild every affected event month.
+The job does not enforce the maintenance window or coordinate concurrent processes.
 
 Unit and contract tests need no Docker. E01 starts the Compose stack lazily, uses unique
 connector/topic names and spool directories, validates both plugins through REST,
 requires running tasks, and checks the users snapshot and typed events through Kafka.
 It removes its connectors afterward and retains the services for subsequent work.
-Failures include Compose logs in the pytest report. C04 is a strict expected failure
-until Phase 3 adds the ClickHouse Kafka tables, as required by `prompts/PROMPTS.md`.
+Failures include Compose logs in the pytest report. C04 now checks the deployed Kafka
+topics without an expected failure. E02 checks fixture counts, orphans, and duplicate
+reconciliation through ClickHouse; E03 checks MySQL insert/update/delete propagation.
+Integration tests use isolated Testcontainers and unique databases, topics, and groups;
+they read persisted targets and never select from a Kafka engine table.

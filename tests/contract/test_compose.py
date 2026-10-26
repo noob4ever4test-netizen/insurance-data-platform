@@ -1,9 +1,17 @@
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.contract
+def test_C09_clickhouse_accepts_container_network_connections():
+    config = ElementTree.parse(ROOT / "docker" / "clickhouse" / "config.d" / "local.xml")
+
+    assert config.findtext("listen_host") in {"0.0.0.0", "::"}
 
 
 @pytest.mark.contract

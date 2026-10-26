@@ -5,15 +5,19 @@ import os
 import secrets
 import subprocess
 from pathlib import Path
+from threading import Event
 from time import monotonic
 from uuid import uuid4
 
+import clickhouse_connect
 from confluent_kafka import Consumer
 
 from azki_pipeline.connect_client import ConnectClient
 from azki_pipeline.contracts import event_key
+from azki_pipeline.sql_runner import load_sql
 
 ROOT = Path(__file__).resolve().parents[2]
+_wait = Event().wait
 PRODUCTS = {
     "third": "plate_no",
     "body": "car_value",
@@ -145,11 +149,48 @@ def wait_users_snapshot(bootstrap_servers: str, *, timeout: float = 120) -> None
         consumer.close()
 
 
+def wait_clickhouse_users(
+    *, client=None, host="127.0.0.1", port=8123, timeout=120, database_overrides=None
+) -> None:
+    """Wait for synthetic user IDs and dictionary values matching their latest CDC rows."""
+    with (ROOT / "tests" / "fixtures" / "users.csv").open(newline="") as stream:
+        expected = {int(row["user_id"]) for row in csv.DictReader(stream)}
+    query = load_sql(
+        ROOT / "sql" / "seed" / "001_users_ready.sql", database_overrides=database_overrides
+    )[0]
+    owned = client is None
+    if owned:
+        client = clickhouse_connect.get_client(host=host, port=port)
+    try:
+        deadline = monotonic() + timeout
+        while True:
+            rows = client.query(query).result_rows
+            ready = {
+                user_id
+                for user_id, city, device, dictionary_city, dictionary_device in rows
+                if city == dictionary_city and device == dictionary_device
+            }
+            missing = expected - ready
+            if not missing:
+                return
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"ClickHouse users/dictionary not ready; missing {sorted(missing)}"
+                )
+            _wait(min(0.5, remaining))
+    finally:
+        if owned:
+            client.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Prepare and seed the synthetic Compose stack")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--connect-url", default="http://localhost:8083")
     parser.add_argument("--bootstrap-servers", default="127.0.0.1:9092")
+    parser.add_argument("--clickhouse-host", default="127.0.0.1")
+    parser.add_argument("--clickhouse-port", type=int, default=8123)
     args = parser.parse_args(argv)
     prepare_environment()
     if args.prepare_only:
@@ -161,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         client.wait_running(document["name"], timeout=120)
         if filename == "debezium-mysql-source.json":
             wait_users_snapshot(args.bootstrap_servers)
+            wait_clickhouse_users(host=args.clickhouse_host, port=args.clickhouse_port)
     command = ["docker", "compose", "-f", str(ROOT / "docker" / "compose.yml")]
     target = f"/spool/input/seed_{uuid4().hex}.csv"
     subprocess.run(

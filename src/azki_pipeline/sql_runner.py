@@ -1,7 +1,9 @@
+import argparse
 import re
 from pathlib import Path
 from typing import Protocol
 
+import clickhouse_connect
 import sqlglot
 from sqlglot import exp
 
@@ -41,6 +43,25 @@ def _override_databases(statement: exp.Expression, overrides: dict[str, str]) ->
                     target.set("this", f"{overrides[database]}.{name}")
 
 
+def load_sql(path: str | Path, *, database_overrides: dict[str, str] | None = None) -> list[str]:
+    """Parse a SQL file and safely override database identifiers and dictionary references."""
+    overrides = database_overrides or {}
+    for original, replacement in overrides.items():
+        if not _IDENTIFIER.fullmatch(original) or not _IDENTIFIER.fullmatch(replacement):
+            raise ValueError("Invalid database override identifier")
+    queries = []
+    for statement in sqlglot.parse(Path(path).read_text(encoding="utf-8"), read="clickhouse"):
+        if statement is None:
+            continue
+        if overrides and isinstance(statement, exp.Command):
+            raise ValueError(
+                f"Cannot safely override databases in unsupported SQL: {Path(path).name}"
+            )
+        _override_databases(statement, overrides)
+        queries.append(statement.sql(dialect="clickhouse"))
+    return queries
+
+
 def apply_sql(
     client: SQLClient,
     sql_dir: str | Path = _SQL_DIR,
@@ -62,14 +83,26 @@ def apply_sql(
             files.append((int(match[1]), path.name, path))
     applied = 0
     for _, _, path in sorted(files):
-        for statement in sqlglot.parse(path.read_text(encoding="utf-8"), read="clickhouse"):
-            if statement is None:
-                continue
-            if overrides and isinstance(statement, exp.Command):
-                raise ValueError(
-                    f"Cannot safely override databases in unsupported SQL: {path.name}"
-                )
-            _override_databases(statement, overrides)
-            client.command(statement.sql(dialect="clickhouse"))
+        for query in load_sql(path, database_overrides=overrides):
+            client.command(query)
             applied += 1
     return applied
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Apply numbered ClickHouse deployment SQL")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8123)
+    parser.add_argument("--sql-dir", type=Path, default=_SQL_DIR)
+    args = parser.parse_args(argv)
+    client = clickhouse_connect.get_client(host=args.host, port=args.port)
+    try:
+        applied = apply_sql(client, args.sql_dir)
+        print(f"Applied {applied} SQL statements.")
+    finally:
+        client.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

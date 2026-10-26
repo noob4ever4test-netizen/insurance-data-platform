@@ -86,7 +86,6 @@ def test_C03_secrets_are_file_provider_references():
 
 
 @pytest.mark.contract
-@pytest.mark.xfail(strict=True, reason="SQL lands in phase 3")
 def test_C04_connect_topics_match_clickhouse_kafka_tables():
     sql = "\n".join(path.read_text() for path in (ROOT / "sql").glob("*.sql"))
     topics = set()

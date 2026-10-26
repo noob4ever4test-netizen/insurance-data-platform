@@ -1,9 +1,89 @@
 import subprocess
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(scope="session")
+def docker_available():
+    import docker
+
+    try:
+        client = docker.from_env()
+        client.ping()
+        client.close()
+    except docker.errors.DockerException as error:
+        pytest.skip(f"Docker unavailable: {error}")
+
+
+@pytest.fixture(scope="session")
+def container_network(docker_available):
+    from testcontainers.core.network import Network
+
+    with Network() as network:
+        yield network
+
+
+@pytest.fixture(scope="session")
+def clickhouse(container_network):
+    import clickhouse_connect
+    from testcontainers.core.container import DockerContainer
+    from testcontainers.core.wait_strategies import HttpWaitStrategy
+
+    container = (
+        DockerContainer("clickhouse/clickhouse-server:25.3.6.56")
+        .with_network(container_network)
+        .with_env("CLICKHOUSE_SKIP_USER_SETUP", "1")
+        .with_exposed_ports(8123)
+        .waiting_for(HttpWaitStrategy(8123, "/ping").for_status_code(200))
+    )
+    with container:
+        client = clickhouse_connect.get_client(
+            host="127.0.0.1",
+            port=container.get_exposed_port(8123),
+            connect_timeout=5,
+            send_receive_timeout=30,
+        )
+        yield client
+        client.close()
+
+
+@pytest.fixture(scope="session")
+def kafka(container_network):
+    from testcontainers.community.kafka import KafkaContainer
+
+    container = (
+        KafkaContainer("confluentinc/cp-kafka:7.9.2")
+        .with_kraft()
+        .with_network(container_network)
+        .with_network_aliases("kafka")
+    )
+    with container:
+        yield container
+
+
+@pytest.fixture
+def ch_db(clickhouse):
+    from azki_pipeline.sql_runner import apply_sql
+
+    suffix = uuid4().hex
+    databases = {name: f"test_{name}_{suffix}" for name in ("raw", "core", "mart", "dq", "gov")}
+
+    class IsolatedClient:
+        def command(self, query):
+            for original in ("azki.user_events", "mysql.azki.users", "azki-events", "azki-users"):
+                query = query.replace(f"'{original}'", f"'{original}_{suffix}'")
+            return clickhouse.command(query.replace("'kafka:29092'", "'kafka:9092'"))
+
+    try:
+        apply_sql(IsolatedClient(), database_overrides=databases)
+        yield clickhouse, databases
+    finally:
+        for name in ("raw", "mart", "dq", "core", "gov"):
+            clickhouse.command(f"DROP DATABASE IF EXISTS {databases[name]} SYNC")
 
 
 @pytest.fixture(scope="session")

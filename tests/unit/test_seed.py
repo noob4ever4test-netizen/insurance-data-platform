@@ -105,14 +105,62 @@ def test_U30_seed_observes_snapshot_before_staging_events(monkeypatch, capsys):
     monkeypatch.setattr(MODULE, "prepare_environment", lambda: None)
     monkeypatch.setattr(MODULE, "ConnectClient", lambda url: client)
     monkeypatch.setattr(MODULE, "wait_users_snapshot", lambda servers: events.append("snapshot"))
+    monkeypatch.setattr(
+        MODULE, "wait_clickhouse_users", lambda **kwargs: events.append("clickhouse")
+    )
     monkeypatch.setattr(MODULE.subprocess, "run", lambda command, **kwargs: events.append(command))
 
     status = main([])
 
     assert status == 0
-    assert events[:3] == ["azki-mysql-source", "snapshot", "azki-user-events-source"]
-    assert events[3][4] == "cp"
-    assert events[3][-1].endswith(".csv.tmp")
-    assert "mv" in events[4]
-    assert events[4][-1].endswith(".csv")
+    assert events[:4] == ["azki-mysql-source", "snapshot", "clickhouse", "azki-user-events-source"]
+    assert events[4][4] == "cp"
+    assert events[4][-1].endswith(".csv.tmp")
+    assert "mv" in events[5]
+    assert events[5][-1].endswith(".csv")
     assert "Users snapshot observed" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+def test_U30_clickhouse_waits_for_users_and_dictionary_before_returning(monkeypatch):
+    from azki_pipeline.seed import wait_clickhouse_users
+
+    client = Mock()
+    users = []
+    with (FIXTURES / "users.csv").open(newline="") as stream:
+        for row in csv.DictReader(stream):
+            users.append(
+                (
+                    int(row["user_id"]),
+                    row["city"],
+                    row["device_type"],
+                    row["city"],
+                    row["device_type"],
+                )
+            )
+    client.query.side_effect = [
+        Mock(result_rows=[]),
+        Mock(result_rows=[(*row[:3], "unknown", "unknown") for row in users]),
+        Mock(result_rows=users),
+    ]
+    monkeypatch.setattr(MODULE, "_wait", lambda interval: None)
+    monkeypatch.setattr(MODULE, "monotonic", lambda: 0)
+
+    wait_clickhouse_users(client=client, timeout=1)
+
+    assert client.query.call_count == 3
+    client.close.assert_not_called()
+
+
+@pytest.mark.unit
+def test_U30_clickhouse_timeout_closes_owned_client(monkeypatch):
+    from azki_pipeline.seed import wait_clickhouse_users
+
+    client = Mock()
+    client.query.return_value.result_rows = []
+    monkeypatch.setattr(MODULE.clickhouse_connect, "get_client", lambda **kwargs: client)
+
+    with pytest.raises(TimeoutError, match="ClickHouse users"):
+        wait_clickhouse_users(timeout=0)
+
+    client.close.assert_called_once_with()
