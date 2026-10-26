@@ -1,17 +1,19 @@
 UV ?= $(if $(wildcard .venv/bin/uv),.venv/bin/uv,uv)
 COMPOSE = docker compose -f docker/compose.yml
 
-.PHONY: up down seed test-unit test-contract test-integration test-e2e lint
+.PHONY: prepare up down seed test-unit test-contract test-integration test-e2e lint
 
-up:
+prepare:
+	$(UV) run python -m azki_pipeline.seed --prepare-only
+
+up: prepare
 	$(COMPOSE) up -d --build --wait
 
 down:
-	$(COMPOSE) down
+	$(COMPOSE) --profile three-brokers down
 
 seed:
-	@echo "Seeding will be implemented with the Compose stack in Phase 2."
-	@exit 1
+	$(UV) run python -m azki_pipeline.seed
 
 test-unit:
 	$(UV) run pytest tests/unit -m unit -q

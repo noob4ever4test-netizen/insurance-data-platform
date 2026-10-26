@@ -1,1 +1,30 @@
-{}
+{
+  "name": "azki-user-events-source",
+  "config": {
+    "connector.class": "com.github.jcustenborder.kafka.connect.spooldir.SpoolDirCsvSourceConnector",
+    "tasks.max": "1",
+    "topic": "azki.user_events",
+    "input.path": "/spool/input",
+    "finished.path": "/spool/finished",
+    "error.path": "/spool/error",
+    "input.file.pattern": ".*\\.csv",
+    "file.minimum.age.ms": "1000",
+    "cleanup.policy": "MOVE",
+    "halt.on.error": "false",
+    "csv.first.row.as.header": "true",
+    "schema.generation.enabled": "false",
+    "key.schema": "{\"name\":\"azki.UserEventKey\",\"type\":\"STRUCT\",\"isOptional\":false,\"fieldSchemas\":{\"user_id\":{\"type\":\"INT64\",\"isOptional\":false}}}",
+    "value.schema": "{\"name\":\"azki.UserEvent\",\"type\":\"STRUCT\",\"isOptional\":false,\"fieldSchemas\":{\"event_time\":{\"type\":\"STRING\",\"isOptional\":false},\"user_id\":{\"type\":\"INT64\",\"isOptional\":false},\"session_id\":{\"type\":\"STRING\",\"isOptional\":false},\"event_type\":{\"type\":\"STRING\",\"isOptional\":false},\"channel\":{\"type\":\"STRING\",\"isOptional\":false},\"premium_amount\":{\"type\":\"INT64\",\"isOptional\":false}}}",
+    "transforms": "extractKey",
+    "transforms.extractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+    "transforms.extractKey.field": "user_id",
+    "errors.tolerance": "all",
+    "errors.deadletterqueue.topic.name": "dlq.user_events",
+    "errors.deadletterqueue.topic.replication.factor": "1",
+    "errors.log.enable": "true",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}

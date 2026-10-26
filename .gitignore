@@ -19,3 +19,5 @@ dist/
 spark-warehouse/
 metastore_db/
 derby.log
+docker/secrets/
+docker/generated/

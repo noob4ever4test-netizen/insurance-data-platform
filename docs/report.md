@@ -98,3 +98,64 @@
   explicitly pending rather than asserting against empty files or introducing Phase 3 SQL.
   All producer and SQL-client checks use test doubles; broker/server integration remains
   for later phases. Final layer results: 77 unit tests and 19 contract tests, with lint clean.
+
+### Phase 2: Compose and source connectors
+
+- Added a pinned Compose stack: Confluent Kafka/Schema Registry/Connect 7.9.2,
+  MySQL 8.0.43, ClickHouse 25.3.6.56, and Kafka UI 0.7.2. Every service has a
+  healthcheck. The custom Connect image installs Debezium MySQL 2.7.4.Final and
+  spooldir 2.0.65. The default is a combined KRaft controller/broker; the
+  `three-brokers` profile adds two brokers while retaining one controller and
+  replication factor 1. All three broker healthchecks were verified on Docker.
+- `make up` prepares ignored local secrets and synthetic CSVs before starting services.
+  Passwords are stable across runs and mode 0600; committed configs refer to the
+  password through FileConfigProvider. `make down` preserves volumes. Operational
+  commands, ports, profile limitations, and credential persistence are documented in
+  `docker/README.md`. No real data files are mounted or copied.
+- MySQL runs ROW/FULL binlogging and GTIDs. Numbered files in `sql/mysql/` are mounted
+  directly into its initialization directory, with a mysql-client-only local infile
+  setting. It loads nine synthetic users, four rows in each of the four product tables,
+  and sixteen financial rows. Product tables include common synthetic PII, product
+  attributes, and indexes on `(user_id, session_id, created_at)`. Orders derive from
+  distinct fixture purchases and use the same session/time keys; duplicates remain
+  in the source event fixture. Fresh initialization was verified independently in a
+  temporary MySQL database, then that temporary container was removed.
+- The MySQL connector snapshots all six tables, retains timestamp metadata and
+  rewritten delete flags, and emits heartbeat messages. Spooldir has explicit typed
+  schemas, extracts user ID as a numeric Kafka key, and uses separate persistent input,
+  finished, and error paths. File parsing quarantine is distinct from Connect's
+  configured DLQ; do not assume source DLQ settings handle every file parser failure.
+- `ConnectClient` validates configs through REST before idempotent registration,
+  includes the required connector name in the request config, and waits for both the
+  connector and nonempty running tasks. Failed tasks surface their trace; polling has
+  a deadline and retries transient status errors. `make seed` registers MySQL first,
+  waits for all synthetic users on the CDC topic, then registers spooldir and stages
+  an event file by atomic rename. Each seed call intentionally replays that file.
+- TDD evidence: the initial configs produced seven failing contract assertions, with
+  C04 a strict expected failure as required by `prompts/PROMPTS.md`; client/bootstrap
+  tests initially failed on missing modules. Added regressions exposed the validation
+  endpoint's required name, direct MySQL initialization mounts, and IPv4 advertised
+  host listeners. Each regression was red before its fix. Local checks currently
+  report 117 passed and the planned C04 xfail. C04 remains pending until Phase 3 SQL.
+- Runtime validation found and resolved a mounted shell initializer issue by mounting
+  SQL directly, and a mysqladmin incompatibility by restricting local-infile to the
+  `[mysql]` option group. Docker Hub downloads exceeded the first E01 startup timeout;
+  downloads completed separately. The first plugin download failed Confluent Hub's
+  checksum check; a retry passed, and the official archive was independently verified
+  against publisher MD5 `7e5487912947e1c21245aa1b72d81c65`. Verification was not disabled.
+- E01 uses unique connector/topic names and spool directories, validates real plugins,
+  requires running tasks, and consumes both the complete users snapshot and all fixture
+  events. Kafka host listeners use explicit `127.0.0.1` because IPv6-first localhost
+  resolution failed against IPv4-only bindings. Polling assertions retain collected
+  counts; key/type checks run afterward so an error cannot be hidden by later empty polls.
+  Test failures attach Compose logs. A remaining timeout was traced to subscribing before
+  spooldir created its topic: default metadata refresh could outlast the test deadline.
+  E01 now creates its unique topics first; the bootstrap snapshot consumer also refreshes
+  topic metadata every second. The seed metadata setting has a red/green regression test.
+  Final results: **91 unit tests passed**, **26 contract tests passed**, the planned
+  **C04 strict xfail**, **E01 passed** (29.49 seconds), and **lint passed**. All six default
+  services and both optional brokers were healthy. Services remain running for subsequent phases.
+  The documented `make seed` command completed successfully, followed by
+  `make test-e2e` (**1 passed in 27.70 seconds**) with the registered default connectors
+  also active. Existing synthetic fixture files were unchanged; Git ignores generated
+  credentials and order CSVs.

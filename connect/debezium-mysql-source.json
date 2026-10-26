@@ -1,1 +1,29 @@
-{}
+{
+  "name": "azki-mysql-source",
+  "config": {
+    "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+    "tasks.max": "1",
+    "database.hostname": "mysql",
+    "database.port": "3306",
+    "database.user": "debezium",
+    "database.password": "${file:/opt/secrets/mysql.properties:password}",
+    "database.server.id": "5401",
+    "topic.prefix": "mysql",
+    "database.include.list": "azki",
+    "table.include.list": "azki.users,azki.third_orders,azki.body_orders,azki.medical_orders,azki.fire_orders,azki.financial_order",
+    "schema.history.internal.kafka.bootstrap.servers": "kafka:29092",
+    "schema.history.internal.kafka.topic": "schema-history.azki",
+    "include.schema.changes": "false",
+    "snapshot.mode": "initial",
+    "heartbeat.interval.ms": "5000",
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.delete.handling.mode": "rewrite",
+    "transforms.unwrap.drop.tombstones": "true",
+    "transforms.unwrap.add.fields": "op,ts_ms,source.ts_ms",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}

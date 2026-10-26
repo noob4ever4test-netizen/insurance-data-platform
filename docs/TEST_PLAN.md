@@ -34,19 +34,21 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | U26 | helpers.eventually | deadline limits waits; timeout preserves last assertion | green |
 | U27 | helpers.eventually | unexpected exceptions propagate immediately | green |
 | U28 | helpers.eventually | invalid timeout or polling interval rejected | green |
+| U29 | connect_client | validates and registers configs; waits for connector/tasks; propagates failures and times out | green |
+| U30 | seed | stable private secrets and synthetic product/financial rows derived from fixture purchases | green |
 
 ## Contract (`-m contract`, no Docker)
 | ID | Target | Behaviour | Status |
 |---|---|---|---|
 | C01 | fixtures | synthetic CSV headers == `event_time,user_id,session_id,event_type,channel,premium_amount` and `user_id,signup_date,city,device_type`; also == `data/*.csv` headers when present | green |
-| C02 | connect/*.json | valid JSON, required keys, consistent converters | todo |
-| C03 | connect/*.json | no plaintext secrets (only `${file:...}`) | todo |
-| C04 | cross-file | Connect topic names == `kafka_topic_list` in SQL | todo |
+| C02 | connect/*.json | valid JSON, required keys, consistent converters | green |
+| C03 | connect/*.json | no plaintext secrets (only `${file:...}`) | green |
+| C04 | cross-file | Connect topic names == `kafka_topic_list` in SQL; strict xfail until Phase 3 per prompts/PROMPTS.md | red |
 | C05 | sql/*.sql | every file parses with sqlglot ClickHouse dialect | todo |
 | C06 | sql/*.sql | every MergeTree has ORDER BY and PARTITION BY; Kafka tables have `kafka_handle_error_mode='stream'` | todo |
 | C07 | sql/*.sql | no `SELECT *` inside MVs | todo |
 | C08 | 070_governance | PII columns of order tables (`national_id`, `phone`, `plate_no`, `policy_no`) never granted to `role_analyst`; analysts only via `gov.*` | todo |
-| C09 | compose.yml | all services have healthchecks; images pinned (no `latest`) | todo |
+| C09 | compose.yml | all services have healthchecks; images pinned (no `latest`) | green |
 | C10 | contracts | ClickHouse raw table columns ⊇ contract fields with compatible types (requires Phase 3 deployment DDL) | todo |
 | C11 | contracts | schemas accept synthetic rows, enforce required fields/types/dates/enum/nonnegative premiums, and allow evolving dimensions | green |
 
@@ -73,7 +75,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 ## E2E (`-m e2e`, docker compose)
 | ID | Behaviour | Status |
 |---|---|---|
-| E01 | stack healthy; connectors validate and reach RUNNING | todo |
+| E01 | stack healthy; connectors validate and reach RUNNING | green |
 | E02 | seed users (Debezium snapshot complete) **before** events → counts reconcile with source; orphan ratio == expected from fixture | todo |
 | E03 | update a user in MySQL → change visible in ClickHouse via Debezium | todo |
 | E04 | stop Connect, produce, restart → no loss, no duplicates in FINAL view | todo |
