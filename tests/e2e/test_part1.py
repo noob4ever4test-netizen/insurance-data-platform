@@ -8,9 +8,11 @@ import pytest
 from confluent_kafka.admin import AdminClient, NewTopic
 
 from azki_pipeline.connect_client import ConnectClient
-from azki_pipeline.seed import wait_clickhouse_users
+from azki_pipeline.contracts import event_key
+from azki_pipeline.seed import wait_clickhouse_orders, wait_clickhouse_users
 from azki_pipeline.sql_runner import apply_sql
 from tests.helpers.eventually import eventually
+from tests.helpers.factories import PRODUCT_ATTRIBUTES
 from tests.helpers.pipeline import aggregate_rows, expected_aggregates, fixture_rows
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,7 +33,6 @@ def part1_stack(compose_stack):
         {
             "topic.prefix": f"mysql_{suffix}",
             "database.server.id": str(10000 + int(suffix[:6], 16)),
-            "table.include.list": "azki.users",
             "schema.history.internal.kafka.topic": f"schema-history.phase3.{suffix}",
         }
     )
@@ -44,13 +45,25 @@ def part1_stack(compose_stack):
         ("error.path", "error"),
     ):
         spool["config"][key] = f"/spool/{suffix}/{directory}"
-    topics = [spool["config"]["topic"], f"mysql_{suffix}.azki.users"]
+    topics = [
+        spool["config"]["topic"],
+        *[f"mysql_{suffix}.{table}" for table in mysql["config"]["table.include.list"].split(",")],
+    ]
     admin = AdminClient({"bootstrap.servers": "127.0.0.1:9092"})
     for future in admin.create_topics([NewTopic(topic, 1, 1) for topic in topics]).values():
         future.result(timeout=30)
 
     class ConfiguredClient:
         def command(self, query):
+            query = query.replace("'mysql.azki.", f"'mysql_{suffix}.azki.")
+            for name in (
+                "third-orders",
+                "body-orders",
+                "medical-orders",
+                "fire-orders",
+                "financial-order",
+            ):
+                query = query.replace(f"'azki-{name}'", f"'azki-{name}-{suffix}'")
             for original, replacement in (
                 ("azki.user_events", topics[0]),
                 ("mysql.azki.users", topics[1]),
@@ -77,6 +90,7 @@ def part1_stack(compose_stack):
 
         eventually(users_ready, timeout=120, interval=0.5)
         wait_clickhouse_users(client=client, database_overrides=databases)
+        wait_clickhouse_orders(client=client, database_overrides=databases)
         subprocess.run(
             [
                 *compose_stack,
@@ -147,6 +161,23 @@ def test_E02_seed_users_before_events_and_reconcile_fixture(part1_stack):
     assert client.query(
         f"SELECT orphan_ratio FROM {databases['dq']}.user_event_orphans"
     ).result_rows == [(missing / len(unique),)]
+    purchases = [event for event in unique if event["event_type"] == "purchase"]
+    expected = [
+        (
+            event_key(event["user_id"], event["session_id"], event["event_time"], "purchase"),
+            index + 1,
+            list(PRODUCT_ATTRIBUTES)[index % len(PRODUCT_ATTRIBUTES)],
+            event["premium_amount"],
+            1,
+        )
+        for index, event in enumerate(purchases)
+    ]
+    enriched = client.query(
+        f"SELECT event_key, order_id, product_type, paid_amount, event_time = order_created_at "
+        f"FROM {databases['mart']}.purchase_events_enriched FINAL "
+        "WHERE _is_deleted = 0 ORDER BY order_id"
+    ).result_rows
+    assert enriched == expected
     for partition in sorted({int(event["event_time"][:7].replace("-", "")) for event in events}):
         rebuild_aggregate_partition(client, partition, database_overrides=databases)
     assert aggregate_rows(client, databases["mart"]) == expected_aggregates(unique, users)

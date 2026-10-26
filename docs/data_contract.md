@@ -45,3 +45,32 @@ No PII in users. PII for governance tests lives in the (invented) order tables: 
 ## Aggregation (Part 1)
 `mart.user_event_agg` keyed by `event_date, event_type, channel, city, device_type`:
 `count`, `uniq(user_id)`, `uniq(session_id)`, `sum(premium_amount)`, `avg(premium_amount)`.
+
+## Purchase enrichment (Part 2, derived tables)
+
+The invented product tables retain their native fields and are unioned by four MVs into
+`core.orders_unified`. Identity is `(product_type, order_id)`; mutable user, session,
+timestamp and partner attributes are excluded from the replacement key. Shared columns
+include the synthetic PII and order premium. Product-specific values are represented as
+`Map(String, String)` entries: `plate_no`, `car_value`, `coverage_limit`, `property_value`.
+The source numeric columns remain Int64; map values use decimal strings.
+
+Purchase attribution requires exactly one non-deleted order with a matching non-deleted
+financial row for `(user_id, session_id)`. Financial identity also matches the order's
+`product_type` and `order_id`, preventing collisions across products. Sessions with
+multiple fully matched orders are left unenriched rather than attributed arbitrarily.
+The order timestamp must be within ±3600 seconds of the event, inclusive. Neither a
+payment-status filter nor a premium-equality constraint is imposed: event premium,
+order premium, financial amount and payment status are retained separately.
+
+The supplied MySQL DATETIME columns have zero fractional precision. Debezium's default
+adaptive-time encoding represents these as milliseconds since the Unix epoch, converted
+to UTC DateTime in the ClickHouse CDC MVs. A future migration to DATETIME(4–6) would
+require changing this conversion to the connector's microsecond representation.
+
+`mart.purchase_events_enriched` uses the event identity for replacement, preserving
+one active row per event despite duplicate deliveries or repaired attributes. Read with
+`FINAL WHERE _is_deleted = 0`. Purchase inserts without a valid attribution write a
+tombstone; subsequent repair can replace it with a complete row. The minute refresh
+recomputes FINAL purchases from the first day of two months ago in UTC onward, including
+future-dated events. Older corrections require the explicit monthly repair SQL.

@@ -211,3 +211,75 @@
   `make test-integration` **10 passed**, `make test-e2e` **3 passed**, and `make lint`
   passed. No tests were skipped or marked expected-failure in this run. Integration
   completed in 29.85 seconds; E2E completed in 50.78 seconds.
+
+### Phase 4: Denormalized purchase events
+
+- Added four versioned product tables and four incremental union MVs in `050`, preserving
+  common order fields and synthetic PII plus a `Map(String, String)` of product-specific
+  attributes. Identity is `(product_type, order_id)` in the union so product IDs cannot
+  collide. Source and union dimensions use a constant partition and immutable replacement
+  keys, so changes to user, session, partner, or timestamp replace the same order.
+- All four product topics and `financial_order` now have Kafka landing tables, CDC MVs,
+  and dead-letter MVs. The supplied MySQL DATETIME columns emit Debezium millisecond
+  timestamps, converted explicitly to UTC; a Kafka regression caught an initial incorrect
+  microsecond conversion. Every source retains topic, partition, offset, CDC version, and
+  tombstones. C04 now checks all six CDC topics as well as the event topic.
+- `core.purchase_order_lookup` prejoins FINAL non-deleted orders with FINAL non-deleted
+  financial rows. It requires matching order ID/product as well as user/session. Exactly
+  one fully matched order per session is required; ambiguous sessions are excluded rather
+  than multiplied or attributed arbitrarily. This is an explicit attribution assumption,
+  because events have no order ID. The ±1 h order/event sanity filter includes its endpoints.
+- `core.purchase_orders_dict` loads that prejoin into a hashed composite-key lookup,
+  refreshing every 1–5 seconds. The purchase event MV only performs dictionary lookups:
+  it avoids rebuilding the large order/financial join for every event block. Full dictionary
+  reloads still scan/join dimension snapshots and use memory proportional to their size;
+  this design amortizes that work rather than eliminating it. The enriched row retains
+  separate event premium, order premium, payment amount/status, user attributes, and PII.
+- `mart.purchase_events_enriched` replaces by event identity and enrichment timestamp.
+  Reads require FINAL and `_is_deleted = 0`. Duplicate source deliveries cannot create
+  multiple active purchases. Non-purchase events never write rows. Missing, ambiguous,
+  out-of-window, or deleted attributions write tombstones that can replace stale output.
+- Incremental MVs do not react to dimension-side inserts. A real refreshable MV runs
+  every minute, appending corrected versions from deduplicated events dated from the first
+  day of two months ago (UTC) onward. Older output remains untouched. I09 proves late order
+  and financial arrivals require a refresh, then verifies repeatability, attribute updates,
+  and order/financial deletions. An explicit parameterized monthly SQL job repairs older
+  purchases. This source-driven repair does not retract purchases whose source events were
+  physically removed; the tested retractions are caused by dimension tombstones.
+- Seed now waits for joined order/financial rows and matching dictionary values before
+  staging events. This also makes the older synthetic fixtures safe despite falling
+  outside the automatic repair window. E02 snapshots all six actual MySQL source tables,
+  runs Debezium/spooldir, and checks every fixture purchase's ID, product, paid amount,
+  and converted timestamp. Event consumption is activated at the end of `060`, after both
+  incremental event MVs exist. Active Phase 3 upgrades need paused event ingestion and
+  explicit repair of previously ingested months, as documented in `docker/README.md`.
+- TDD evidence: the initial I06–I09/contract run had **26 expected failures, 5 passes**
+  against missing Phase 4 DDL. New regressions exposed premature event consumption,
+  incorrect CDC timestamp units, missing historical repair SQL, and missing order readiness
+  in seed; each was observed red before implementation. No existing assertion was removed
+  or weakened. Test topics/groups are isolated for every added CDC engine.
+- Performance evidence uses the I09 fixture containing one old and one current monthly
+  event partition. The query below is the source scan used by automatic repair; normalized
+  EXPLAIN output from ClickHouse 25.3.6.56 is recorded here:
+
+  ```sql
+  EXPLAIN indexes = 1
+  SELECT event_key FROM core.user_events FINAL
+  WHERE event_type = 'purchase'
+    AND event_time >= toStartOfMonth(now('UTC') - INTERVAL 2 MONTH);
+  ```
+
+  ```text
+  ReadFromMergeTree (core.user_events)
+    MinMax: event_time; Parts: 1/2; Granules: 1/2
+    Partition: toYYYYMM(event_time); Parts: 1/1; Granules: 1/1
+    PrimaryKey: event_type, event_time; Parts: 1/1; Granules: 1/1
+  ```
+
+  The existing monthly partition and sorted key exclude the historical part. No additional
+  projection or skip index is added without evidence of further benefit. These synthetic
+  tests validate pruning and correctness; they are not a production throughput benchmark.
+- Final verification: `make test-unit` **103 passed**, `make test-contract` **35 passed**,
+  `make test-integration` **40 passed** (212.66 seconds), `make test-e2e` **3 passed**
+  (89.41 seconds), and `make lint` passed. No skips or expected failures. Phase 4 is
+  complete; governance remains Phase 5.

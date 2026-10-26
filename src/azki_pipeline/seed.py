@@ -184,6 +184,41 @@ def wait_clickhouse_users(
             client.close()
 
 
+def wait_clickhouse_orders(
+    *, client=None, host="127.0.0.1", port=8123, timeout=120, database_overrides=None
+) -> None:
+    """Wait for every fixture purchase's fully joined order and matching dictionary entry."""
+    with (ROOT / "tests" / "fixtures" / "user_events.csv").open(newline="") as stream:
+        expected = {
+            (int(row["user_id"]), row["session_id"])
+            for row in csv.DictReader(stream)
+            if row["event_type"] == "purchase"
+        }
+    query = load_sql(
+        ROOT / "sql" / "seed" / "002_orders_ready.sql", database_overrides=database_overrides
+    )[0]
+    owned = client is None
+    if owned:
+        client = clickhouse_connect.get_client(host=host, port=port)
+    try:
+        deadline = monotonic() + timeout
+        while True:
+            rows = client.query(query).result_rows
+            ready = {(user_id, session_id) for user_id, session_id, matches in rows if matches}
+            missing = expected - ready
+            if not missing:
+                return
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"ClickHouse orders/dictionary not ready; missing {sorted(missing)}"
+                )
+            _wait(min(0.5, remaining))
+    finally:
+        if owned:
+            client.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Prepare and seed the synthetic Compose stack")
     parser.add_argument("--prepare-only", action="store_true")
@@ -203,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         if filename == "debezium-mysql-source.json":
             wait_users_snapshot(args.bootstrap_servers)
             wait_clickhouse_users(host=args.clickhouse_host, port=args.clickhouse_port)
+            wait_clickhouse_orders(host=args.clickhouse_host, port=args.clickhouse_port)
     command = ["docker", "compose", "-f", str(ROOT / "docker" / "compose.yml")]
     target = f"/spool/input/seed_{uuid4().hex}.csv"
     subprocess.run(

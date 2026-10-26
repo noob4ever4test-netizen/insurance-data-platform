@@ -18,3 +18,18 @@ flowchart LR
     Rebuild -->|atomic REPLACE PARTITION| Aggregate
     Events --> Orphans["dq.user_event_orphans"]
     Dictionary --> Orphans
+    MySQLOrders["MySQL third/body/medical/fire + financial"] --> CDC
+    CDC --> OrderTopics["Kafka: four product topics + financial_order"]
+    OrderTopics --> RawOrders["raw.kafka_*_orders + raw.kafka_financial_order"]
+    RawOrders -->|parse errors| DLQ
+    RawOrders --> Products["core: four versioned product tables"]
+    RawOrders --> Financial["core.financial_order"]
+    Products -->|four MVs| Unified["core.orders_unified: common fields + product attributes"]
+    Unified --> Lookup["core.purchase_order_lookup: latest non-deleted join"]
+    Financial --> Lookup
+    Lookup --> OrderDictionary["core.purchase_orders_dict: unambiguous user/session"]
+    Events -->|purchase insert + dictionary lookup| Purchases["mart.purchase_events_enriched"]
+    OrderDictionary --> Purchases
+    Events -->|FINAL: recent months| Repair["Minute refresh: append corrected rows / tombstones"]
+    OrderDictionary --> Repair
+    Repair --> Purchases

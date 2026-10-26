@@ -6,12 +6,12 @@ import sqlglot
 from sqlglot import exp
 
 ROOT = Path(__file__).resolve().parents[2]
-PHASE3 = sorted((ROOT / "sql").glob("0[0-4]*.sql"))
+DEPLOYMENT = sorted((ROOT / "sql").glob("0[0-6]*.sql"))
 
 
 @pytest.mark.contract
-def test_C05_phase3_sql_is_present_and_parses():
-    for path in PHASE3:
+def test_C05_deployment_sql_is_present_and_parses():
+    for path in DEPLOYMENT:
         assert path.read_text().strip(), f"Missing deployment SQL: {path.name}"
     for path in (ROOT / "sql").rglob("*.sql"):
         if path.parent.name == "mysql":
@@ -24,7 +24,7 @@ def test_C05_phase3_sql_is_present_and_parses():
 def test_C06_storage_and_stream_error_settings():
     creates = [
         statement
-        for path in PHASE3
+        for path in DEPLOYMENT
         for statement in sqlglot.parse(path.read_text(), read="clickhouse")
         if isinstance(statement, exp.Create)
     ]
@@ -43,7 +43,7 @@ def test_C06_storage_and_stream_error_settings():
 def test_C07_materialized_views_use_explicit_columns():
     views = [
         statement
-        for path in PHASE3
+        for path in DEPLOYMENT
         for statement in sqlglot.parse(path.read_text(), read="clickhouse")
         if isinstance(statement, exp.Create) and statement.args.get("kind") == "VIEW"
     ]
@@ -54,11 +54,20 @@ def test_C07_materialized_views_use_explicit_columns():
 
 @pytest.mark.contract
 def test_C07_aggregate_view_exists_before_event_consumption_is_enabled():
-    deployment = "\n".join(path.read_text() for path in PHASE3)
+    deployment = "\n".join(path.read_text() for path in DEPLOYMENT)
 
     assert deployment.index("VIEW IF NOT EXISTS core.user_event_agg_mv") < deployment.index(
         "VIEW IF NOT EXISTS raw.user_events_mv"
     )
+
+
+@pytest.mark.contract
+def test_C07_purchase_enrichment_exists_before_event_consumption_is_enabled():
+    deployment = "\n".join(path.read_text() for path in DEPLOYMENT)
+
+    assert deployment.index(
+        "VIEW IF NOT EXISTS core.purchase_events_enriched_mv"
+    ) < deployment.index("VIEW IF NOT EXISTS raw.user_events_mv")
 
 
 @pytest.mark.contract

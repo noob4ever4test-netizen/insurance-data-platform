@@ -74,7 +74,29 @@ def ch_db(clickhouse):
 
     class IsolatedClient:
         def command(self, query):
-            for original in ("azki.user_events", "mysql.azki.users", "azki-events", "azki-users"):
+            originals = ["azki.user_events", "azki-events", "azki-users"]
+            originals.extend(
+                f"mysql.azki.{table}"
+                for table in (
+                    "users",
+                    "third_orders",
+                    "body_orders",
+                    "medical_orders",
+                    "fire_orders",
+                    "financial_order",
+                )
+            )
+            originals.extend(
+                f"azki-{name}"
+                for name in (
+                    "third-orders",
+                    "body-orders",
+                    "medical-orders",
+                    "fire-orders",
+                    "financial-order",
+                )
+            )
+            for original in originals:
                 query = query.replace(f"'{original}'", f"'{original}_{suffix}'")
             return clickhouse.command(query.replace("'kafka:29092'", "'kafka:9092'"))
 

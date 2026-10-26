@@ -18,15 +18,19 @@ has snapshot/replication privileges and SELECT access to the source database.
 
 `make seed` validates and registers the MySQL connector, waits until all fixture users
 have appeared on `mysql.azki.users` and in ClickHouse with matching dictionary dimensions,
-then registers spooldir and stages the synthetic
+and waits for all fixture purchase orders, financial rows, and their dictionary entries.
+It then registers spooldir and stages the synthetic
 event CSV by an atomic rename. Each seed invocation replays the event file; it does
 not deduplicate source events. Apply SQL before seeding so downstream materialized views
 exist before the first Kafka records arrive. The event forwarding views are activated
-in `040_agg_part1.sql`, after the aggregate view has been installed.
+at the end of `060_purchase_enriched.sql`, after both event materialized views are installed.
+When upgrading an already active Phase 3 deployment, pause event ingestion while applying
+the new DDL, and run historical purchase repair for months ingested before Phase 4.
 
 Dictionary refreshes occur every 1–5 seconds; events from independent writers that arrive
 before their users use `unknown` dimensions and require reconciliation. The seed command
-waits for both the users and dictionary before staging its CSV, and fails with a bounded
+waits for users, orders/financial rows, and matching dictionary values before staging its CSV,
+and fails with a bounded
 timeout if they are incomplete. E02 uses the same readiness helper. Use `--clickhouse-host`
 and `--clickhouse-port` when the HTTP endpoint differs from `127.0.0.1:8123`.
 
@@ -73,7 +77,55 @@ Debezium emits flattened records, source/envelope timestamp metadata, and rewrit
 delete flags. The users Kafka table accepts Debezium DATE values as days since the Unix
 epoch, converts them to Date, and uses `__ts_ms` as the version and `__deleted` as the
 tombstone. Users live in one partition so an attribute change cannot split user versions.
-The dictionary reads a FINAL, non-deleted view. Order-table conversion is part of Phase 4.
+The users dictionary reads a FINAL, non-deleted view. The four order CDC topics and
+financial topic also land through Kafka engines, converting the supplied MySQL DATETIME
+millisecond values to UTC. Every CDC engine has a dead-letter MV. Product MVs union
+common fields and a `Map(String, String)` of product attributes into `core.orders_unified`.
+
+Purchase inserts use `core.purchase_orders_dict`, a dictionary keyed by `(user_id, session_id)`
+whose source prejoins current orders with current financial rows. The financial row must
+also match order ID and product; sessions with multiple matching orders are excluded.
+The order must be within one hour of the event. The event MV performs dictionary lookups
+without scanning a large join for each event block. Like the users dictionary, it refreshes
+every 1–5 seconds. Its full reload still joins the latest source tables and uses memory
+proportional to the lookup size; measure these costs before scaling beyond this local stack.
+
+Read deduplicated active purchases with:
+
+```sql
+SELECT event_time, user_id, session_id, order_id, product_type, payment_status, paid_amount
+FROM mart.purchase_events_enriched FINAL
+WHERE _is_deleted = 0;
+```
+
+`mart.purchase_events_repair_mv` runs every minute and appends versioned corrections for
+FINAL purchase events from the first day of two months ago in UTC onward. It handles
+late orders/financial rows, changed attributes, deleted dimensions and duplicate events.
+Unmatched or deleted attributions produce tombstones, which retract previously enriched
+rows. Older months are retained. Physical versions accumulate between merges, so active
+queries must use FINAL and the deletion filter. Source-event removal itself is not a
+dimension deletion and is not retracted by this source-driven repair.
+
+After CDC has caught up, an immediate refresh can be requested with:
+
+```sh
+docker compose -f docker/compose.yml exec -T clickhouse clickhouse-client --multiquery --query \
+  'SYSTEM RELOAD DICTIONARY core.purchase_orders_dict; SYSTEM REFRESH VIEW mart.purchase_events_repair_mv; SYSTEM WAIT VIEW mart.purchase_events_repair_mv;'
+```
+
+To repair an older month (also useful after upgrading Phase 3), reload both dictionaries
+and execute the checked-in parameterized SQL from the repository root:
+
+```sh
+docker compose -f docker/compose.yml exec -T clickhouse clickhouse-client --multiquery --query \
+  'SYSTEM RELOAD DICTIONARY core.users_dict; SYSTEM RELOAD DICTIONARY core.purchase_orders_dict;'
+docker compose -f docker/compose.yml exec -T clickhouse clickhouse-client --param_partition=202510 \
+  < sql/jobs/010_repair_purchase_partition.sql
+```
+
+The monthly purchase repair appends replacements/tombstones with a new version; rerunning
+it leaves the same logical FINAL result. It does not swap the aggregate staging table and
+does not require the serialized aggregate rebuild procedure described below.
 
 Events use UTC DateTime, a materialized `cityHash64` key, and ReplacingMergeTree with
 microsecond ingestion timestamps. Query `core.user_events FINAL` for deduplicated results.
@@ -108,7 +160,8 @@ connector/topic names and spool directories, validates both plugins through REST
 requires running tasks, and checks the users snapshot and typed events through Kafka.
 It removes its connectors afterward and retains the services for subsequent work.
 Failures include Compose logs in the pytest report. C04 now checks the deployed Kafka
-topics without an expected failure. E02 checks fixture counts, orphans, and duplicate
-reconciliation through ClickHouse; E03 checks MySQL insert/update/delete propagation.
+topics without an expected failure. E02 snapshots all six source tables and checks fixture
+counts, orphans, duplicate reconciliation and purchase enrichment through ClickHouse;
+E03 checks MySQL insert/update/delete propagation.
 Integration tests use isolated Testcontainers and unique databases, topics, and groups;
 they read persisted targets and never select from a Kafka engine table.

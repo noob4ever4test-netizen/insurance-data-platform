@@ -108,16 +108,23 @@ def test_U30_seed_observes_snapshot_before_staging_events(monkeypatch, capsys):
     monkeypatch.setattr(
         MODULE, "wait_clickhouse_users", lambda **kwargs: events.append("clickhouse")
     )
+    monkeypatch.setattr(MODULE, "wait_clickhouse_orders", lambda **kwargs: events.append("orders"))
     monkeypatch.setattr(MODULE.subprocess, "run", lambda command, **kwargs: events.append(command))
 
     status = main([])
 
     assert status == 0
-    assert events[:4] == ["azki-mysql-source", "snapshot", "clickhouse", "azki-user-events-source"]
-    assert events[4][4] == "cp"
-    assert events[4][-1].endswith(".csv.tmp")
-    assert "mv" in events[5]
-    assert events[5][-1].endswith(".csv")
+    assert events[:5] == [
+        "azki-mysql-source",
+        "snapshot",
+        "clickhouse",
+        "orders",
+        "azki-user-events-source",
+    ]
+    assert events[5][4] == "cp"
+    assert events[5][-1].endswith(".csv.tmp")
+    assert "mv" in events[6]
+    assert events[6][-1].endswith(".csv")
     assert "Users snapshot observed" in capsys.readouterr().out
 
 
@@ -162,5 +169,44 @@ def test_U30_clickhouse_timeout_closes_owned_client(monkeypatch):
 
     with pytest.raises(TimeoutError, match="ClickHouse users"):
         wait_clickhouse_users(timeout=0)
+
+    client.close.assert_called_once_with()
+
+
+@pytest.mark.unit
+def test_U30_seed_waits_for_every_purchase_order_and_financial_dictionary(monkeypatch):
+    from azki_pipeline.seed import wait_clickhouse_orders
+
+    with (FIXTURES / "user_events.csv").open(newline="") as stream:
+        keys = {
+            (int(row["user_id"]), row["session_id"])
+            for row in csv.DictReader(stream)
+            if row["event_type"] == "purchase"
+        }
+    client = Mock()
+    client.query.side_effect = [
+        Mock(result_rows=[]),
+        Mock(result_rows=[(*key, 0) for key in keys]),
+        Mock(result_rows=[(*key, 1) for key in keys]),
+    ]
+    monkeypatch.setattr(MODULE, "_wait", lambda interval: None)
+    monkeypatch.setattr(MODULE, "monotonic", lambda: 0)
+
+    wait_clickhouse_orders(client=client, timeout=1)
+
+    assert client.query.call_count == 3
+    client.close.assert_not_called()
+
+
+@pytest.mark.unit
+def test_U30_order_readiness_timeout_closes_owned_client(monkeypatch):
+    from azki_pipeline.seed import wait_clickhouse_orders
+
+    client = Mock()
+    client.query.return_value.result_rows = []
+    monkeypatch.setattr(MODULE.clickhouse_connect, "get_client", lambda **kwargs: client)
+
+    with pytest.raises(TimeoutError, match="ClickHouse orders"):
+        wait_clickhouse_orders(timeout=0)
 
     client.close.assert_called_once_with()

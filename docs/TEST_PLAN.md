@@ -35,7 +35,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | U27 | helpers.eventually | unexpected exceptions propagate immediately | green |
 | U28 | helpers.eventually | invalid timeout or polling interval rejected | green |
 | U29 | connect_client | validates and registers configs; waits for connector/tasks; propagates failures and times out | green |
-| U30 | seed | stable private secrets and synthetic product/financial rows; waits for Kafka snapshot and ClickHouse users/dictionary before staging events | green |
+| U30 | seed | stable private secrets and synthetic product/financial rows; waits for Kafka snapshot, ClickHouse users, joined orders/financial rows, and matching dictionaries before staging events | green |
 | U31 | reconcile | validates partition/database identifiers; stages deduped aggregate states and atomically replaces or drops one month | green |
 
 ## Contract (`-m contract`, no Docker)
@@ -44,10 +44,10 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | C01 | fixtures | synthetic CSV headers == `event_time,user_id,session_id,event_type,channel,premium_amount` and `user_id,signup_date,city,device_type`; also == `data/*.csv` headers when present | green |
 | C02 | connect/*.json | valid JSON, required keys, consistent converters | green |
 | C03 | connect/*.json | no plaintext secrets (only `${file:...}`) | green |
-| C04 | cross-file | Connect topic names == `kafka_topic_list` in SQL; Phase 3 removes the expected failure | green |
+| C04 | cross-file | event topic and all six Connect CDC topics have matching `kafka_topic_list` in SQL | green |
 | C05 | sql/*.sql | deployment, job, and fixture SQL parses with sqlglot ClickHouse dialect; MySQL initialization is excluded | green |
 | C06 | sql/*.sql | every explicit MergeTree has ORDER BY and PARTITION BY; Kafka tables have `kafka_handle_error_mode='stream'` | green |
-| C07 | sql/*.sql | no `SELECT *` inside MVs; aggregate MV is installed before Kafka event forwarding starts | green |
+| C07 | sql/*.sql | no `SELECT *` inside MVs; aggregate and purchase MVs are installed before Kafka event forwarding starts | green |
 | C08 | 070_governance | PII columns of order tables (`national_id`, `phone`, `plate_no`, `policy_no`) never granted to `role_analyst`; analysts only via `gov.*` | todo |
 | C09 | compose.yml | all services have healthchecks; images pinned (no `latest`) | green |
 | C10 | contracts | ClickHouse Kafka and persisted event table columns ⊇ contract fields with compatible types | green |
@@ -61,10 +61,10 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | I03 | CH | late event (old timestamp) lands in correct aggregate bucket | green |
 | I04 | CH | event for a user_id absent from users → city/device_type = `'unknown'`; orphan collector reports ratio | green |
 | I05 | CH | users ReplacingMergeTree: update + delete → latest state via FINAL; dictionary reflects it after reload | green |
-| I06 | CH | 4 product tables → `orders_unified` contains union with correct `product_type` | todo |
-| I07 | CH | purchase event + order with same (user_id, session_id) + financial row → one enriched row with all columns | todo |
-| I08 | CH | non-purchase events never enter enriched table | todo |
-| I09 | CH | order arriving after purchase event → fixed by repair/refreshable MV | todo |
+| I06 | CH / Kafka+CH | 4 product MVs preserve common fields, typed extras, updates/deletes; Kafka CDC converts MySQL DATETIME milliseconds and retains offsets | green |
+| I07 | CH | all products enrich one FINAL purchase row with event/user/order/financial fields; enforce ±1 h, full financial identity, and unambiguous session attribution | green |
+| I08 | CH | non-purchase events never enter enriched table | green |
+| I09 | CH | refresh repairs late orders/financial rows, updates/deletes and duplicates; recent scan prunes old partitions, explicit monthly SQL repairs history | green |
 | I10 | CH | governance: analyst sees masked PII, row policy limits partner rows, quota applies | todo |
 | I11 | Kafka+CH | produce UTC events with additional fields → persisted events with topic, partition, offset | green |
 | I12 | Kafka+CH | malformed JSON or timestamp → `dq.kafka_dead_letter`, pipeline keeps flowing | green |
@@ -77,7 +77,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | ID | Behaviour | Status |
 |---|---|---|
 | E01 | stack healthy; connectors validate and reach RUNNING | green |
-| E02 | seed users (Debezium snapshot complete in ClickHouse and dictionary ready) **before** events → counts reconcile with source; orphan ratio == expected from fixture | green |
+| E02 | seed users and all product/financial tables (ClickHouse and dictionaries ready) **before** events → event/aggregate counts, orphans and enriched purchases reconcile with fixtures through real CDC | green |
 | E03 | insert/update/delete a synthetic user in MySQL → latest state visible in ClickHouse via Debezium; updated city available in dictionary | green |
 | E04 | stop Connect, produce, restart → no loss, no duplicates in FINAL view | todo |
 | E05 | new events carry an extra column (e.g. `utm_campaign`) → drift check WARNs, rows still ingested (`input_format_skip_unknown_fields=1`) | todo |

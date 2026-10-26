@@ -94,4 +94,7 @@ def test_C04_connect_topics_match_clickhouse_kafka_tables():
 
     mysql = json.loads((ROOT / "connect" / CONFIGS[0]).read_text())["config"]
     spool = json.loads((ROOT / "connect" / CONFIGS[1]).read_text())["config"]
-    assert {spool["topic"], f"{mysql['topic.prefix']}.azki.users"} <= topics
+    expected = {
+        f"{mysql['topic.prefix']}.{table}" for table in mysql["table.include.list"].split(",")
+    }
+    assert {spool["topic"], *expected} <= topics
