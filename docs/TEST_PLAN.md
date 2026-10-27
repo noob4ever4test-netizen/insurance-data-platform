@@ -53,6 +53,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived â€
 | C09 | compose.yml | all services have healthchecks; images pinned (no `latest`) | green |
 | C10 | contracts | ClickHouse Kafka and persisted event table columns âŠ‡ contract fields with compatible types | green |
 | C11 | contracts | schemas accept synthetic rows, enforce required fields/types/dates/enum/nonnegative premiums, and allow evolving dimensions | green |
+| C12 | documentation | report evidence links resolve; phase notes preserved; architecture connects source, governed consumer, DQ, and Spark recovery paths | green |
 
 ## Integration (`-m integration`, Testcontainers)
 | ID | Containers | Behaviour | Status |

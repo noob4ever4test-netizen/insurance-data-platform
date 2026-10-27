@@ -1,35 +1,70 @@
-flowchart LR
-    CSV["Synthetic user_events.csv"] --> Spool["Spooldir source"]
-    MySQL["MySQL users"] --> CDC["Debezium flattened CDC"]
-    Spool --> EventsTopic["Kafka azki.user_events"]
-    CDC --> UsersTopic["Kafka mysql.azki.users"]
-    EventsTopic --> RawEvents["raw.kafka_user_events"]
-    UsersTopic --> RawUsers["raw.kafka_users"]
-    RawEvents -->|valid rows| Events["core.user_events: ReplacingMergeTree"]
-    RawEvents -->|parse errors| DLQ["dq.kafka_dead_letter"]
-    RawUsers -->|parse errors| DLQ
-    RawUsers --> Users["core.users: versioned tombstones"]
-    Users --> Latest["core.users_latest: FINAL, non-deleted"]
-    Latest --> Dictionary["core.users_dict"]
-    Dictionary -->|lookup on insert| Aggregate["mart.user_event_agg: aggregate states"]
-    Events -->|insert MV| Aggregate
-    Events -->|FINAL, one month| Rebuild["Serialized partition reconciliation"]
-    Dictionary --> Rebuild
-    Rebuild -->|atomic REPLACE PARTITION| Aggregate
-    Events --> Orphans["dq.user_event_orphans"]
-    Dictionary --> Orphans
-    MySQLOrders["MySQL third/body/medical/fire + financial"] --> CDC
-    CDC --> OrderTopics["Kafka: four product topics + financial_order"]
-    OrderTopics --> RawOrders["raw.kafka_*_orders + raw.kafka_financial_order"]
-    RawOrders -->|parse errors| DLQ
-    RawOrders --> Products["core: four versioned product tables"]
-    RawOrders --> Financial["core.financial_order"]
-    Products -->|four MVs| Unified["core.orders_unified: common fields + product attributes"]
-    Unified --> Lookup["core.purchase_order_lookup: latest non-deleted join"]
-    Financial --> Lookup
-    Lookup --> OrderDictionary["core.purchase_orders_dict: unambiguous user/session"]
-    Events -->|purchase insert + dictionary lookup| Purchases["mart.purchase_events_enriched"]
-    OrderDictionary --> Purchases
-    Events -->|FINAL: recent months| Repair["Minute refresh: append corrected rows / tombstones"]
-    OrderDictionary --> Repair
-    Repair --> Purchases
+flowchart TB
+    subgraph sources["Sources and ingestion"]
+        CSV["user_events.csv: confidential local data or synthetic fixtures"]
+        MYSQL["MySQL: users, third/body/medical/fire orders, financial_order"]
+        CONNECT["Kafka Connect: spooldir CSV source and Debezium CDC"]
+        PRODUCER["Validated Python CSV producer: fallback path"]
+        KAFKA["Kafka KRaft: event topic, six CDC topics, heartbeat topic"]
+        REGISTRY["Schema Registry: available; current JSON converters do not use it"]
+        KAFKA_UI["Kafka UI: broker and topic inspection"]
+    end
+
+    subgraph clickhouse["ClickHouse"]
+        RAW["raw: Kafka-engine landing tables; stream error handling"]
+        CORE["core: FINAL event/user/product/financial state; four MVs union orders"]
+        DICTS["core dictionaries: latest users; prejoined unambiguous purchase orders"]
+        MART["mart.user_event_agg: aggregate states; mart.purchase_events_enriched: versioned purchases"]
+        REPAIR["Purchase refresh: every minute; events since start of two months ago"]
+        RECONCILE["Serialized monthly aggregate reconciliation from FINAL events"]
+        STAGING["core.user_events_staging and mart.purchase_events_backfill"]
+        GOV["gov masked definer view; mart partner row policies and column grants"]
+        SYSTEM["system: consumer state, active parts and part log"]
+        DQ["dq: dead letters, original JSON samples, heartbeat, checks, backfill runs"]
+    end
+
+    subgraph operations["Consumers and recovery"]
+        CONSUMERS["BI analysts and partner consumers; governed access"]
+        COUNTS["Independent hourly source-count manifest"]
+        DQ_RUNNER["Python DQ runner: collect, evaluate 12 checks, persist JSON results"]
+        SPARK["Spark batch backfill: UTC range, validate, dedupe, anti-join; paused writers"]
+        ALERTS["Operator or scheduler: JSON output and failure exit code"]
+    end
+
+    CSV -->|primary file source| CONNECT
+    MYSQL -->|binlog CDC| CONNECT
+    CONNECT --> KAFKA
+    CSV --> PRODUCER
+    PRODUCER --> KAFKA
+    KAFKA -.->|inspection| KAFKA_UI
+    REGISTRY -.->|available service| CONNECT
+    KAFKA --> RAW
+    RAW -->|valid event and CDC insert MVs| CORE
+    RAW -->|parse errors, JSON audit stream and heartbeat MVs| DQ
+    CORE --> DICTS
+    CORE -->|event insert MVs| MART
+    DICTS -->|lookup on event insert| MART
+    CORE -->|FINAL recent purchases| REPAIR
+    DICTS --> REPAIR
+    REPAIR -->|append corrections and tombstones| MART
+    CORE -->|FINAL month| RECONCILE
+    DICTS --> RECONCILE
+    RECONCILE -->|replace aggregate partition| MART
+    MART --> GOV
+    GOV --> CONSUMERS
+    CORE -->|freshness, completeness, duplicates and orphans| DQ_RUNNER
+    MART -->|purchase completeness| DQ_RUNNER
+    SYSTEM --> DQ_RUNNER
+    KAFKA -->|broker watermarks and committed offsets| DQ_RUNNER
+    DQ -->|samples, heartbeat and dead letters| DQ_RUNNER
+    COUNTS --> DQ_RUNNER
+    DQ_RUNNER -->|persist check_results| DQ
+    DQ_RUNNER --> ALERTS
+    CSV -->|authoritative recovery file| SPARK
+    KAFKA -->|bounded batch by record timestamp| SPARK
+    CORE -->|existing FINAL keys| SPARK
+    SPARK -->|fill missing events| CORE
+    SPARK -->|stage complete UTC months| STAGING
+    STAGING -->|replace event partition| CORE
+    STAGING -->|replace rebuilt purchase partition| MART
+    SPARK -->|rebuild affected aggregate and purchase partitions| MART
+    SPARK -->|backfill_runs audit| DQ
