@@ -375,3 +375,70 @@
   E05 retry reached the long-running local Compose ClickHouse server's 1 GiB memory cap;
   restarting that service preceded the successful full E2E run. These are functional
   checks against synthetic data, not production capacity measurements.
+
+### Phase 7: Spark backfill and recovery
+
+- U15–U18 cover local Spark parsing/validation, invalid-row accounting, CSV timezone
+  normalization, deterministic first-row deduplication, left-anti gap detection, and
+  half-open UTC ranges. Kafka JSON keeps contract types strict; stringified integers
+  and booleans are rejected. Spark stores `event_key` as Decimal(20,0), preserving
+  the full ClickHouse UInt64 domain, and calls the existing typed CityHash implementation.
+  TimestampNTZ stores normalized UTC wall time, avoiding host timezone shifts. A range
+  test exposed a naive-datetime literal being shifted by the host zone; explicit UTC
+  string literals cast to TimestampNTZ fixed the boundary comparison.
+- `backfill.job` supports bounded CSV or Kafka input, `fill-gaps`, `replace-partition`,
+  and dry-run. A JSON summary and `dq.backfill_runs` row record source/mode, range,
+  counts, status, run UUID and timing. Runtime failures log the exception class without
+  source data. Numbered SQL under `sql/backfill/` implements maintenance operations;
+  Python does not construct DDL. CSV bad rows are omitted in fill mode; replacement
+  rejects them before live changes. All real writes require the operator to assert
+  that event writers, purchase refreshes and other repair jobs are paused/serialized.
+- Fill mode deduplicates the source and anti-joins FINAL event keys in the requested
+  range, writes missing events in 1,000-row HTTP batches, and rebuilds affected monthly
+  aggregate and purchase partitions. Repairing the whole month also removes stale
+  aggregate states left by deletion and applies current dictionaries. A repeat fill
+  writes zero events. This is operational idempotency under the documented quiescence
+  requirement, rather than an exactly-once transaction with concurrent Kafka writers.
+- Replacement accepts complete UTC months, stages valid deduped events in
+  `core.user_events_staging`, and uses REPLACE PARTITION (DROP for empty snapshots).
+  The source must be authoritative for the entire month. Insert MVs do not run on a
+  partition swap, so both marts are rebuilt explicitly; the purchase staging/swap also
+  removes enriched rows for events absent from the replacement. Other months remain
+  untouched. Swaps are atomic per table partition, not across the whole recovery;
+  failures require rerunning before writers resume. Shared staging requires serialized jobs.
+- Kafka batch bounds apply to record timestamps on every partition, with strict
+  missing-timestamp/data-loss behavior. Topic/partition/offset are retained. Payload
+  event-time filtering still applies, so late events outside the Kafka timestamp
+  window require a complete CSV export. I15 exercises an actual two-partition Kafka
+  source with messages before/in-window/at-end and verifies exactly the in-range
+  offsets and a second zero-write run. Connector jars match the installed PySpark
+  version. Existing keys are collected to the driver for this bounded demonstration;
+  production backfills need distributed exports and orchestration/locking.
+- TDD started with **6 failing transform tests** on missing functions, followed by
+  **3 failing integration tests** on the missing job and **10 failing job-option/CLI
+  tests**. Transform tests then passed; the first job/integration run reported
+  **13 passed**. Contract parsing passed all **36** cases with the new deployment/job SQL.
+  Tests uncovered a pre-existing `SPARK_HOME` pointing to Spark 3.4 and a mismatched
+  worker Python; the local fixture selects the installed PySpark 3.5 package and the
+  test interpreter. Java 17 is documented as a prerequisite.
+- Additional regression tests exposed two recovery edge cases before their fixes:
+  Spark's CSV reader mapped contract-valid empty session/channel strings to null,
+  and a second-batch failure left the audit written count at zero despite 1,000
+  acknowledged inserts. Empty CSV strings now survive normalization while short rows
+  remain invalid. The audit updates after each acknowledged batch; retry inserts
+  only the remaining event and rebuilds exact aggregates. An ambiguous HTTP timeout
+  can still undercount acknowledgments, but FINAL-key reconciliation governs retry.
+- E04 stages a synthetic CSV while Connect is stopped and verifies complete FINAL
+  ingestion after restart. E06 publishes seven days of same-hour history plus fresh
+  events, supplies independent hourly counts, and observes all twelve DQ checks PASS;
+  deleting one hour causes reconciliation FAIL, and Spark gap-fill restores all PASS.
+  The two new E2E cases passed together (**122.70 seconds**); the isolated Kafka
+  backfill case passed (**71.35 seconds**, including container setup/cleanup).
+- Final full verification: `make test-unit` **195 passed** (15.62 seconds),
+  `make test-contract` **36 passed**, `make test-integration` **52 passed**
+  (486.57 seconds), `make test-e2e` **6 passed** (267.59 seconds), `make lint`
+  and `git diff --check` passed. No skips or expected failures. An earlier full
+  E2E attempt hit the existing Compose ClickHouse 1 GiB memory cap during fixture
+  setup; restarting ClickHouse preceded a successful retry. Memory limits were
+  unchanged. The final verification ran after restarting the local Docker daemon.
+  These timings include test infrastructure and are not production benchmarks.

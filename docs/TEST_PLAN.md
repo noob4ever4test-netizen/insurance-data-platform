@@ -21,10 +21,10 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | U12 | dq.schema_drift | new field → WARN, missing required/type changes or malformed samples → FAIL; no payload values in results | green |
 | U13 | dq.duplicates | physical duplicates = count − uniqExact(event_key); ratio boundaries | green |
 | U14 | dq.runner | validated thresholds/source manifests; all 12 checks, additional rate/load/reconciliation checks, persistence, JSON CLI and failure exit codes | green |
-| U15 | backfill.transforms | parse + validate drops invalid rows and counts them | todo |
-| U16 | backfill.transforms | dedupe by `event_key` (keep first); Spark `event_key` == Python `event_key` on same rows | todo |
-| U17 | backfill.transforms | missing rows = left-anti join on `event_key` vs existing keys | todo |
-| U18 | backfill.transforms | date-range filter is inclusive/exclusive as documented | todo |
+| U15 | backfill.transforms | CSV/JSON validation separates invalid rows, counts rejects, normalizes CSV timezone; rejects malformed JSON and wrong wire types | green |
+| U16 | backfill.transforms | dedupe by `event_key` (keep first); Spark `event_key` == Python `event_key` on same rows | green |
+| U17 | backfill.transforms | missing rows = left-anti join on `event_key` vs existing keys | green |
+| U18 | backfill.transforms | UTC date-range filter is [start, end); invalid/naive bounds rejected | green |
 | U19 | sql_runner | applies files in numeric order; DB overrides substitute safely; deployment CLI closes its client | green |
 | U21 | helpers.factories | event factory has contract fields and supports overrides | green |
 | U22 | helpers.factories | user factory has contract fields and supports overrides | green |
@@ -37,6 +37,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | U29 | connect_client | validates and registers configs; waits for connector/tasks; propagates failures and times out | green |
 | U30 | seed | stable private secrets and synthetic product/financial rows; waits for Kafka snapshot, ClickHouse users, joined orders/financial rows, and matching dictionaries before staging events | green |
 | U31 | reconcile | validates partition/database identifiers; stages deduped aggregate states and atomically replaces or drops one month | green |
+| U32 | backfill.job | validates options before database access; bounded Kafka batch options; CLI prints JSON and closes resources | green |
 
 ## Contract (`-m contract`, no Docker)
 | ID | Target | Behaviour | Status |
@@ -70,8 +71,8 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | I12 | Kafka+CH | malformed JSON or timestamp → `dq.kafka_dead_letter`, pipeline keeps flowing | green |
 | I13 | Kafka+CH / CH | duplicate delivery → one row in FINAL; repeatable partition repair also re-enriches late users, preserves other months, and clears empty months | green |
 | I14 | CH / Kafka+CH | all DQ metric shapes and persisted results; historical source-manifest hours, real broker group offsets and heartbeat MV; engineer can run without access management | green |
-| I15 | CH+Spark | backfill `fill-gaps` fills a deleted hour; second run is a no-op | todo |
-| I16 | CH+Spark | backfill `replace-partition` atomically swaps partition and rebuilds aggregates | todo |
+| I15 | CH+Spark / Kafka | fills deleted hour, dry-run preserves events, second run writes zero; bounded two-partition Kafka replay retains offsets; interrupted batches audit acknowledged writes and retry only missing keys | green |
+| I16 | CH+Spark | staged monthly replacement/drop preserves other months, rebuilds aggregates and purchases, is repeatable, rejects invalid sources before mutation | green |
 
 ## E2E (`-m e2e`, docker compose)
 | ID | Behaviour | Status |
@@ -79,6 +80,6 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | E01 | stack healthy; connectors validate and reach RUNNING | green |
 | E02 | seed users and all product/financial tables (ClickHouse and dictionaries ready) **before** events → event/aggregate counts, orphans and enriched purchases reconcile with fixtures through real CDC | green |
 | E03 | insert/update/delete a synthetic user in MySQL → latest state visible in ClickHouse via Debezium; updated city available in dictionary | green |
-| E04 | stop Connect, produce, restart → no loss, no duplicates in FINAL view | todo |
+| E04 | stop Connect, stage synthetic CSV during outage, restart → all events arrive once in FINAL view | green |
 | E05 | new events carry an extra column (e.g. `utm_campaign`) → drift check WARNs, both evolved and subsequent events are ingested without dead letters | green |
-| E06 | full DQ runner on healthy stack → all PASS; after deleting an hour → FAIL; after backfill → PASS | todo |
+| E06 | full DQ runner on healthy stack → all 12 PASS; after deleting an hour → reconciliation FAIL; after Spark backfill → all PASS | green |

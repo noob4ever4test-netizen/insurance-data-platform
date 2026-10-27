@@ -256,3 +256,63 @@ same-hour counts, a median/MAD baseline, and a configurable positive MAD floor.
 The engineer role can query the required system Kafka/parts/table metadata and part log,
 read pipeline data, and append DQ results. Part-log absence produces WARN; denied or failed
 collection produces FAIL. DQ grants do not add access management or query-log access.
+
+## Spark backfill
+
+Install a Java 17 JDK and set `JAVA_HOME` to its home before running Spark or the
+unit/integration/E2E test targets. `uv` installs the `spark` extra for those targets.
+Use the project's PySpark 3.5 distribution: unset an inherited `SPARK_HOME` pointing
+at a different Spark release. The local test fixture explicitly selects the installed
+PySpark distribution and the current virtualenv's Python interpreter.
+
+Apply the deployment SQL, then inspect a recovery range without changing event or mart data:
+
+```sh
+make apply-sql
+env -u SPARK_HOME make backfill ARGS='--source csv --path tests/fixtures/user_events.csv --start 2025-10-16T00:00:00Z --end 2025-10-17T00:00:00Z --dry-run'
+```
+
+`--start` is inclusive and `--end` exclusive. Both require timezone-aware, whole-second
+timestamps; filtering uses UTC after parsing. CSV timestamps default to UTC;
+`--timezone Asia/Tehran` interprets timezone-free CSV values in that zone before hashing.
+Invalid rows are counted and omitted in `fill-gaps`. Successful runs print a JSON summary
+(`rows_read`, `invalid`, `missing`, `written`, status and run metadata) and appends an
+audit row to `dq.backfill_runs`, including dry-runs and runtime failures. Failed runs
+exit nonzero. `written` counts acknowledged event inserts or completed source partition
+swaps, including batches acknowledged before a later failure. A lost HTTP response can
+make this count conservative; rerunning compares FINAL keys to avoid another logical
+event. Only the error class is persisted; payloads and exception text are excluded.
+
+Before applying a recovery, pause all producers/Connect event sources, drain the event
+consumer, stop the purchase refreshable view, and serialize backfill/reconciliation
+jobs. Keep these writers stopped until the job finishes. `--writers-paused` asserts
+this operating condition; the CLI does not acquire a distributed lock or stop services.
+Resume the sources and refresh afterward. This also prevents a race between checking
+existing keys and inserting missing ones. The default `fill-gaps` mode inserts only
+absent event keys, then rebuilds each affected month in both marts from FINAL events.
+A second successful fill run writes zero events and can still repair the marts.
+
+```sh
+env -u SPARK_HOME make backfill ARGS='--source csv --path tests/fixtures/user_events.csv --start 2025-10-16T00:00:00Z --end 2025-10-17T00:00:00Z --writers-paused'
+```
+
+For `--mode replace-partition`, supply an authoritative snapshot covering complete
+UTC calendar months and month-aligned bounds, such as `2025-10-01T00:00:00Z` to
+`2025-11-01T00:00:00Z`. The job rejects any invalid source rows before changing live
+partitions. It loads `core.user_events_staging`, atomically replaces each selected
+month, and rebuilds aggregate and purchase partitions. An empty snapshot intentionally
+drops the selected months. Events outside the range and other months are preserved.
+Replacement does not fire insert MVs, which is why both marts are repaired explicitly.
+Each partition swap is atomic; the entire sequence across tables/months is not a
+transaction. A failed run is audited and must be rerun before writers resume.
+
+Kafka replay uses `--source kafka --kafka-bootstrap 127.0.0.1:9092 --topic TOPIC`
+with the same range/mode flags. It reads a bounded batch across every partition,
+retains topic/partition/offset, and fails on unavailable start timestamps or lost
+offsets. These source bounds refer to Kafka record timestamps; the transforms also
+filter payload event times. Use a complete CSV export to recover late events whose
+Kafka record timestamps fall outside the requested event-time range. Spark downloads
+the matching `spark-sql-kafka` Maven connector on first Kafka use. CSV replay does
+not require that connector. Existing ClickHouse keys for the bounded range are
+materialized on the driver before Spark's left-anti join; large recoveries should
+be split into smaller ranges or use a distributed key export in production.

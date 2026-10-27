@@ -1,10 +1,33 @@
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(scope="session")
+def spark():
+    import pyspark
+    from pyspark.sql import SparkSession
+
+    environment = pytest.MonkeyPatch()
+    environment.setenv("SPARK_HOME", str(Path(pyspark.__file__).parent))
+    environment.setenv("PYSPARK_PYTHON", sys.executable)
+    session = (
+        SparkSession.builder.master("local[1]")
+        .appName("azki-backfill-tests")
+        .config("spark.sql.shuffle.partitions", "1")
+        .config("spark.sql.session.timeZone", "UTC")
+        .config("spark.ui.enabled", "false")
+        .getOrCreate()
+    )
+    session.sparkContext.setLogLevel("ERROR")
+    yield session
+    session.stop()
+    environment.undo()
 
 
 @pytest.fixture(scope="session")

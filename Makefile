@@ -1,7 +1,7 @@
 UV ?= $(if $(wildcard .venv/bin/uv),.venv/bin/uv,uv)
 COMPOSE = docker compose -f docker/compose.yml
 
-.PHONY: prepare up down apply-sql seed dq test-unit test-contract test-integration test-e2e lint
+.PHONY: prepare up down apply-sql seed dq backfill test-unit test-contract test-integration test-e2e lint
 
 prepare:
 	$(UV) run python -m azki_pipeline.seed --prepare-only
@@ -21,17 +21,20 @@ apply-sql:
 dq:
 	$(UV) run python -m azki_pipeline.dq.runner --kafka-bootstrap 127.0.0.1:9092
 
+backfill:
+	$(UV) run --extra spark python -m azki_pipeline.backfill.job $(ARGS)
+
 test-unit:
-	$(UV) run pytest tests/unit -m unit -q
+	$(UV) run --extra spark pytest tests/unit -m unit -q
 
 test-contract:
 	$(UV) run pytest tests/contract -m contract -q
 
 test-integration:
-	$(UV) run --extra integration pytest tests/integration -m integration -q
+	$(UV) run --extra integration --extra spark pytest tests/integration -m integration -q
 
 test-e2e:
-	$(UV) run --extra integration pytest tests/e2e -m e2e -q
+	$(UV) run --extra integration --extra spark pytest tests/e2e -m e2e -q
 
 lint:
 	$(UV) run ruff check .
