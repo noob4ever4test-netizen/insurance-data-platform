@@ -203,3 +203,56 @@ Admins can inspect `system.query_log`; flush logs before an immediate audit quer
 SQL under `sql/test_fixtures/governance/` creates passwordless, temporary test users only
 inside disposable integration containers. It is excluded from numbered deployment SQL.
 Tests namespace and remove both database objects and server-wide access entities.
+
+## Data-quality checks
+
+After `make apply-sql`, run `make dq` to collect, evaluate, and append all twelve checks
+to `dq.check_results`. The runner prints one JSON CheckResult per line and exits 1 when
+any check FAILs, or 0 for PASS/WARN-only results. Connection, configuration, and persistence
+errors also fail the command; the runner closes its ClickHouse client on completion.
+Thresholds are in `src/azki_pipeline/dq/thresholds.yaml`; pass `--thresholds` to use another
+validated configuration. Limits are inclusive: equality stays in the lower severity,
+WARN starts above `warn`, and FAIL starts above `fail`.
+
+For independent reconciliation, supply a JSON object mapping UTC hour strings, such as
+`2026-10-27T11:00:00Z`, to nonnegative integer counts of distinct source event keys.
+Include zero-count hours when they need reconciliation. Counts must come from a CSV,
+producer manifest, or independent Kafka reconciliation and use the same event-key rules;
+do not derive the source counts from the ClickHouse sink being checked. Only the requested
+hours are compared, including historical hours, with sink events before the run's UTC
+cutoff. A manifest for a current partial hour needs the same cutoff at the source.
+
+```sh
+uv run python -m azki_pipeline.dq.runner \
+  --kafka-bootstrap 127.0.0.1:9092 \
+  --event-topic azki.user_events --consumer-group azki-events \
+  --source-counts /path/to/hourly-counts.json
+```
+
+Broker lag uses Kafka Admin low/high watermarks and committed offsets, rather than
+assuming ClickHouse consumer offsets are broker high watermarks. Missing broker
+configuration produces WARN; broker access/collection errors produce FAIL. Source
+reconciliation without a nonempty independent manifest, missing heartbeat/sample evidence, and
+insufficient seven-day history produce WARN rather than a false healthy result.
+The historical demo fixtures can legitimately FAIL freshness even when services are healthy.
+
+The independent `azki-dq-samples` group reads the event topic as JSONAsString and retains
+payloads, including unknown fields and parser errors, in `dq.event_samples` for one day
+(MergeTree TTL cleanup is asynchronous). Drift checks inspect up to the latest 1,000
+messages captured in the past hour. They record field names/types rather than payload
+values in check results. This bounded sample can miss unsampled or expired drift; it is
+not a schema-registry compatibility gate. Raw samples stay restricted to engineer/admin
+access. The extra reader does not change the event ingestion consumer group's offsets.
+
+`azki-dq-heartbeats` reads `__debezium-heartbeat.mysql` into a separate one-day table.
+CDC freshness measures the heartbeat emission timestamp through ClickHouse, not a
+fabricated users.updated_at or a guarantee about every database transaction. An idle
+source can lack heartbeat evidence. Offset gaps measure continuity in the retained audit
+stream, not proof of loss from compacted/transactional Kafka topics. Physical duplicate
+counts can decrease as ReplacingMergeTree merges; source reconciliation compares logical
+FINAL event counts instead. Volume uses the last completed UTC hour against seven prior
+same-hour counts, a median/MAD baseline, and a configurable positive MAD floor.
+
+The engineer role can query the required system Kafka/parts/table metadata and part log,
+read pipeline data, and append DQ results. Part-log absence produces WARN; denied or failed
+collection produces FAIL. DQ grants do not add access management or query-log access.

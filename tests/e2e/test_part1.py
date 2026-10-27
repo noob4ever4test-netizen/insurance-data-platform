@@ -48,6 +48,7 @@ def part1_stack(compose_stack):
     topics = [
         spool["config"]["topic"],
         *[f"mysql_{suffix}.{table}" for table in mysql["config"]["table.include.list"].split(",")],
+        f"__debezium-heartbeat.mysql_{suffix}",
     ]
     admin = AdminClient({"bootstrap.servers": "127.0.0.1:9092"})
     for future in admin.create_topics([NewTopic(topic, 1, 1) for topic in topics]).values():
@@ -69,6 +70,9 @@ def part1_stack(compose_stack):
                 ("mysql.azki.users", topics[1]),
                 ("azki-events", f"azki-events-{suffix}"),
                 ("azki-users", f"azki-users-{suffix}"),
+                ("azki-dq-samples", f"azki-dq-samples-{suffix}"),
+                ("azki-dq-heartbeats", f"azki-dq-heartbeats-{suffix}"),
+                ("__debezium-heartbeat.mysql", f"__debezium-heartbeat.mysql_{suffix}"),
             ):
                 query = query.replace(f"'{original}'", f"'{replacement}'")
             return client.command(query)

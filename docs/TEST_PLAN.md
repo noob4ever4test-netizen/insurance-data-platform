@@ -13,14 +13,14 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | U04 | producer | `YYYY-MM-DD HH:MM:SS` parsed with configurable tz and emitted as UTC ISO-8601 | green |
 | U05 | producer | malformed CSV row → routed to error list, not raised | green |
 | U06 | contracts | `schema_diff(old, new)` reports added / removed / type-changed fields | green |
-| U07 | dq.freshness | PASS / WARN / FAIL at threshold boundaries | todo |
-| U08 | dq.lag | consumer lag per partition aggregated; FAIL if any partition over threshold | todo |
-| U09 | dq.offset_gaps | detects gap from (min, max, count) per partition | todo |
-| U10 | dq.volume | anomaly vs trailing median ± k·MAD; no false alarm on flat series | todo |
-| U11 | dq.orphans | orphan ratio computed and thresholded | todo |
-| U12 | dq.schema_drift | new field → WARN, removed/required type change → FAIL | todo |
-| U13 | dq.duplicates | duplicates = count − uniqExact(event_key) | todo |
-| U14 | dq.runner | exit code non-zero iff any FAIL; results serialized | todo |
+| U07 | dq.freshness | event/ingestion freshness and CDC heartbeat age; threshold boundaries, missing evidence, future clocks | green |
+| U08 | dq.lag | consumer lag per partition aggregated; worst-partition thresholds, uncommitted offsets, broker offset errors | green |
+| U09 | dq.offset_gaps | detects gap from (min, max, distinct offset count) per topic/partition | green |
+| U10 | dq.volume | anomaly vs trailing same-hour median ± k·MAD; flat-series floor and insufficient history | green |
+| U11 | dq.orphans | orphan ratio computed and thresholded after users load; empty events | green |
+| U12 | dq.schema_drift | new field → WARN, missing required/type changes or malformed samples → FAIL; no payload values in results | green |
+| U13 | dq.duplicates | physical duplicates = count − uniqExact(event_key); ratio boundaries | green |
+| U14 | dq.runner | validated thresholds/source manifests; all 12 checks, additional rate/load/reconciliation checks, persistence, JSON CLI and failure exit codes | green |
 | U15 | backfill.transforms | parse + validate drops invalid rows and counts them | todo |
 | U16 | backfill.transforms | dedupe by `event_key` (keep first); Spark `event_key` == Python `event_key` on same rows | todo |
 | U17 | backfill.transforms | missing rows = left-anti join on `event_key` vs existing keys | todo |
@@ -69,7 +69,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | I11 | Kafka+CH | produce UTC events with additional fields → persisted events with topic, partition, offset | green |
 | I12 | Kafka+CH | malformed JSON or timestamp → `dq.kafka_dead_letter`, pipeline keeps flowing | green |
 | I13 | Kafka+CH / CH | duplicate delivery → one row in FINAL; repeatable partition repair also re-enriches late users, preserves other months, and clears empty months | green |
-| I14 | CH | each DQ collector returns metrics of expected shape against seeded data | todo |
+| I14 | CH / Kafka+CH | all DQ metric shapes and persisted results; historical source-manifest hours, real broker group offsets and heartbeat MV; engineer can run without access management | green |
 | I15 | CH+Spark | backfill `fill-gaps` fills a deleted hour; second run is a no-op | todo |
 | I16 | CH+Spark | backfill `replace-partition` atomically swaps partition and rebuilds aggregates | todo |
 
@@ -80,5 +80,5 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | E02 | seed users and all product/financial tables (ClickHouse and dictionaries ready) **before** events → event/aggregate counts, orphans and enriched purchases reconcile with fixtures through real CDC | green |
 | E03 | insert/update/delete a synthetic user in MySQL → latest state visible in ClickHouse via Debezium; updated city available in dictionary | green |
 | E04 | stop Connect, produce, restart → no loss, no duplicates in FINAL view | todo |
-| E05 | new events carry an extra column (e.g. `utm_campaign`) → drift check WARNs, rows still ingested (`input_format_skip_unknown_fields=1`) | todo |
+| E05 | new events carry an extra column (e.g. `utm_campaign`) → drift check WARNs, both evolved and subsequent events are ingested without dead letters | green |
 | E06 | full DQ runner on healthy stack → all PASS; after deleting an hour → FAIL; after backfill → PASS | todo |

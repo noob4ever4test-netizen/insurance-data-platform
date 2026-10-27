@@ -322,3 +322,56 @@
   (86.36 seconds), and `make lint` passed. The final I10 rerun also passed, including
   repeated governance deployment. No skips or expected failures. Phase 5 is complete;
   data-quality checks and backfill remain for the next phase.
+
+### Phase 6 — Data quality
+
+- Pure evaluators produce typed CheckResults with PASS/WARN/FAIL, observed metrics,
+  thresholds, non-payload details, and one timezone-aware run timestamp. YAML thresholds
+  reject unknown/missing settings, non-finite limits, and reversed severities. Equality
+  stays in the lower severity. The CLI persists every result and exits nonzero on FAIL.
+  Missing optional evidence is WARN; a missing or failed collector is FAIL, never omitted.
+- `080_monitoring.sql` and parameterized queries under `sql/dq/` separate collection
+  from evaluation. A second Kafka group retains original event JSON for one day, because
+  successful Kafka-engine rows do not otherwise preserve unknown fields. Sampling is
+  limited to 1,000 recently captured messages; drift outside that sample is not guaranteed
+  to be detected. New fields WARN; missing required fields, changed declared types,
+  malformed JSON, and non-object payloads FAIL. Results retain field names, not raw values.
+- The twelve checks and their evidence are:
+
+  | Check | Evidence and decision |
+  |---|---|
+  | Freshness | Both maximum event and ingestion times; missing evidence WARNs, excessive future timestamps FAIL |
+  | Consumer lag | Actual broker low/high watermarks and group committed offsets; report total, threshold worst partition |
+  | CDC lag | Retained Debezium heartbeat emission timestamp; no invented users.updated_at |
+  | Offset gaps | Distinct offsets within each retained audit topic/partition range |
+  | Source reconciliation | Independent, validated hourly source-count manifest versus FINAL sink counts for those hours |
+  | Volume | Last closed UTC hour versus seven preceding same-hour counts, median/MAD with a positive floor |
+  | Orphans | dictHas on current users, gated until users are loaded |
+  | Schema drift | Original JSON samples versus declared required fields and JSON types |
+  | Dead letters | Event-topic errors per recently audited message; known errors cannot pass with missing receipts |
+  | Insert health | Maximum active parts per partition, part-log throughput/errors and availability |
+  | Duplicates | Physical row count minus unique event keys; ratio falls as replacements merge |
+  | Purchase enrichment | Recent FINAL purchases without an active enriched event key |
+
+- Gaps in a retained audit stream are a diagnostic, not a guarantee about transactional
+  or compacted Kafka logs. Independent source reconciliation is needed to establish sink
+  completeness. Heartbeat age measures that path's freshness, not every source transaction.
+  A new deployment without seven days of history, no source manifest, or an idle heartbeat
+  cannot honestly claim all PASS. These conditions are explicit WARNs with evidence.
+- I14 verifies exact seeded metrics and twelve persisted results, historical manifest
+  scoping, actual broker offsets over two partitions, real Kafka heartbeat ingestion, and
+  execution as engineer without access management. E05 publishes an added field and a
+  following normal event through the full Compose stack: both persist, drift WARNs on
+  utm_campaign, and no event enters dead-letter storage.
+- TDD began with a missing CheckResult symbol, missing monitoring table, and missing E05
+  collector. Regressions exposed unchecked partition offset errors, incorrect historical
+  reconciliation scope, insufficient engineer system-table grants, and dead-letter evidence
+  that could be hidden by a missing denominator. The duplicate test fixture needed separate
+  insert blocks to prevent within-block replacement; its exact count assertion was retained.
+  U07–U14, I14, and E05 are complete. Spark/backfill and recovery E2E cases remain Phase 7.
+- Final verification: `make test-unit` **178 passed**, `make test-contract` **36 passed**,
+  `make test-integration` **46 passed** (326.82 seconds), `make test-e2e` **4 passed**
+  (135.28 seconds), and `make lint` passed. No skips or expected failures. An earlier
+  E05 retry reached the long-running local Compose ClickHouse server's 1 GiB memory cap;
+  restarting that service preceded the successful full E2E run. These are functional
+  checks against synthetic data, not production capacity measurements.

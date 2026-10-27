@@ -98,3 +98,4 @@ def test_C04_connect_topics_match_clickhouse_kafka_tables():
         f"{mysql['topic.prefix']}.{table}" for table in mysql["table.include.list"].split(",")
     }
     assert {spool["topic"], *expected} <= topics
+    assert f"__debezium-heartbeat.{mysql['topic.prefix']}" in topics

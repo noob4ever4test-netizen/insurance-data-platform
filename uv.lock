@@ -34,6 +34,7 @@ dependencies = [
     { name = "confluent-kafka" },
     { name = "jsonschema" },
     { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "sqlglot" },
 ]
 
@@ -48,7 +49,6 @@ spark = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
-    { name = "pyyaml" },
     { name = "ruff" },
 ]
 
@@ -60,6 +60,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.23" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyspark", marker = "extra == 'spark'", specifier = ">=3.5,<4" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "sqlglot", specifier = ">=26" },
     { name = "testcontainers", marker = "extra == 'integration'", specifier = ">=4.9" },
 ]
@@ -68,7 +69,6 @@ provides-extras = ["integration", "spark"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=8.3" },
-    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.9" },
 ]
 

@@ -74,7 +74,14 @@ def ch_db(clickhouse):
 
     class IsolatedClient:
         def command(self, query):
-            originals = ["azki.user_events", "azki-events", "azki-users"]
+            originals = [
+                "azki.user_events",
+                "azki-events",
+                "azki-users",
+                "azki-dq-samples",
+                "azki-dq-heartbeats",
+                "__debezium-heartbeat.mysql",
+            ]
             originals.extend(
                 f"mysql.azki.{table}"
                 for table in (

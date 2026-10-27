@@ -1,0 +1,12 @@
+freshness: {warn: 120, fail: 600, future_tolerance: 60}
+lag: {warn: 100, fail: 1000}
+cdc_lag: {warn: 30, fail: 120, future_tolerance: 60}
+offset_gaps: {warn: 0, fail: 0}
+source_reconciliation: {warn: 0, fail: 0}
+volume: {warn: 3, fail: 6, mad_floor: 1, min_history: 7}
+orphans: {warn: 0.01, fail: 0.1}
+schema_drift: {}
+dead_letters: {warn: 0, fail: 0.05}
+insert_health: {warn: 100, fail: 300}
+duplicates: {warn: 0.01, fail: 0.05}
+purchase_enrichment: {warn: 0.01, fail: 0.05}

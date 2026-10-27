@@ -8,7 +8,7 @@ from sqlglot import exp
 from azki_pipeline.sql_runner import load_sql
 
 ROOT = Path(__file__).resolve().parents[2]
-DEPLOYMENT = sorted((ROOT / "sql").glob("0[0-7]*.sql"))
+DEPLOYMENT = sorted((ROOT / "sql").glob("0[0-8]*.sql"))
 
 
 @pytest.mark.contract
