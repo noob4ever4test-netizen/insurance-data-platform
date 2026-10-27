@@ -10,7 +10,7 @@ from confluent_kafka.admin import AdminClient, NewTopic
 from azki_pipeline.connect_client import ConnectClient
 from azki_pipeline.contracts import event_key
 from azki_pipeline.seed import wait_clickhouse_orders, wait_clickhouse_users
-from azki_pipeline.sql_runner import apply_sql
+from azki_pipeline.sql_runner import apply_sql, load_sql
 from tests.helpers.eventually import eventually
 from tests.helpers.factories import PRODUCT_ATTRIBUTES
 from tests.helpers.pipeline import aggregate_rows, expected_aggregates, fixture_rows
@@ -113,6 +113,11 @@ def part1_stack(compose_stack):
             connect.delete(name)
         for name in ("raw", "mart", "dq", "core", "gov"):
             client.command(f"DROP DATABASE IF EXISTS {databases[name]} SYNC")
+        for query in load_sql(
+            ROOT / "sql/test_fixtures/governance/072_governance_roles_cleanup.sql",
+            database_overrides=databases,
+        ):
+            client.command(query)
         for future in admin.delete_topics(topics).values():
             future.result(timeout=30)
         client.close()

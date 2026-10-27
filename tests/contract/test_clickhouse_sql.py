@@ -5,8 +5,10 @@ import pytest
 import sqlglot
 from sqlglot import exp
 
+from azki_pipeline.sql_runner import load_sql
+
 ROOT = Path(__file__).resolve().parents[2]
-DEPLOYMENT = sorted((ROOT / "sql").glob("0[0-6]*.sql"))
+DEPLOYMENT = sorted((ROOT / "sql").glob("0[0-7]*.sql"))
 
 
 @pytest.mark.contract
@@ -17,7 +19,15 @@ def test_C05_deployment_sql_is_present_and_parses():
         if path.parent.name == "mysql":
             continue
         statements = sqlglot.parse(path.read_text(), read="clickhouse")
-        assert not any(isinstance(statement, exp.Command) for statement in statements), path
+        load_sql(path)
+        for statement in statements:
+            if isinstance(statement, exp.Command):
+                assert path.name in {
+                    "070_governance.sql",
+                    "070_governance_users.sql",
+                    "071_governance_cleanup.sql",
+                    "072_governance_roles_cleanup.sql",
+                }, path
 
 
 @pytest.mark.contract

@@ -4,9 +4,43 @@ from unittest.mock import Mock, patch
 import pytest
 import sqlglot
 
-from azki_pipeline.sql_runner import apply_sql
+from azki_pipeline.sql_runner import apply_sql, load_sql
 
 FIXTURES = Path(__file__).resolve().parents[2] / "sql" / "test_fixtures"
+
+
+@pytest.mark.unit
+def test_U19_governance_overrides_preserve_literals_and_isolate_roles():
+    path = FIXTURES.parent / "070_governance.sql"
+
+    queries = load_sql(path, database_overrides={"gov": "gov_test", "mart": "mart_test"})
+
+    assert "CREATE ROLE IF NOT EXISTS role_partner_1_gov_test" in queries
+    assert any(
+        "azki_governance_partner_1_gov_test ON mart_test.purchase_events_enriched" in query
+        and "partner_id = 'partner_1'" in query
+        and "TO role_partner_1_gov_test" in query
+        for query in queries
+    )
+
+
+@pytest.mark.unit
+def test_U19_governance_isolation_preserves_column_aliases_and_role_literals():
+    queries = load_sql(
+        FIXTURES / "governance/073_identifier_probe.sql",
+        database_overrides={"core": "core_test", "gov": "gov_test"},
+    )
+
+    assert queries == ["SELECT 1 AS core, 'role_analyst' AS label FROM core_test.runner_probe"]
+
+
+@pytest.mark.unit
+def test_U19_unsupported_commands_still_rejected(tmp_path):
+    path = tmp_path / "070_access.sql"
+    path.write_text("CREATE SOMETHING arbitrary")
+
+    with pytest.raises(ValueError, match="unsupported SQL"):
+        load_sql(path, database_overrides={"gov": "gov_test"})
 
 
 @pytest.mark.unit

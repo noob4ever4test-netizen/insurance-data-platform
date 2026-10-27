@@ -283,3 +283,42 @@
   `make test-integration` **40 passed** (212.66 seconds), `make test-e2e` **3 passed**
   (89.41 seconds), and `make lint` passed. No skips or expected failures. Phase 4 is
   complete; governance remains Phase 5.
+
+### Phase 5 — Governance
+
+- `070_governance.sql` installs admin, engineer, analyst, and two partner roles.
+  Admin inherits the deployer's delegable rights; engineers receive pipeline table
+  privileges without access management. Login provisioning remains an operator concern;
+  deployment creates no passwordless application users or committed credentials.
+- Analysts use an explicit-column SQL SECURITY DEFINER view over FINAL, active purchases.
+  National ID, phone, policy number, and plate number become `***`. Only car value,
+  coverage limit, and property value survive the product-attribute allowlist. Raw PII,
+  dictionary functions, the dimension lookup, and query logs remain inaccessible.
+- Partners have explicit safe column grants and row policies on the purchase mart.
+  A separate unrestricted policy preserves administrator, engineer, and definer reads.
+  I10 connects as all five roles and checks both initial isolation and reassignment of
+  an existing order to another partner after purchase repair, using FINAL reads.
+- Analyst profiles enforce a 10-second execution limit, 10,000 result rows, and 256 MiB,
+  with lower constraints preventing zero from disabling those limits. Logging is enabled
+  without sampling or minimum-duration suppression. I10 verifies forbidden setting changes,
+  actual result-limit failure, and an attributed QueryFinish record in system.query_log.
+- The hourly 1,000-query quota is keyed per user. Its deployment definition targets NONE;
+  identity provisioning explicitly binds analyst user names, as the integration fixture
+  does before opening authenticated connections. The test exhausts the quota through real
+  masked-table reads and confirms admin remains able to query. Constant/system queries
+  can be exempt from quota accounting. The operating guide documents required bindings.
+- TDD started with missing-governance C08 and I10 failures and a U19 failure for safe
+  access-entity isolation. Further failing assertions exposed lost non-PII attributes,
+  limits that could be disabled with zero, ineffective quota probes, and audit suppression.
+  SQLGlot does not parse several valid RBAC constructs. C05's blanket rejection of its
+  Command fallback was incorrect for these constructs: it now delegates to a bounded
+  grammar validator for supported access statements, while other SQL retains AST checks.
+  U19 still rejects unsupported commands and preserves literal/identifier isolation;
+  ClickHouse 25.3.6.56 validates and enforces the deployed governance statements.
+- Integration and E2E database overrides also namespace roles, profiles, quotas, policies,
+  and temporary test users. Cleanup drops server-wide access entities after their databases.
+- Final verification: `make test-unit` **106 passed**, `make test-contract` **36 passed**,
+  `make test-integration` **41 passed** (215.04 seconds), `make test-e2e` **3 passed**
+  (86.36 seconds), and `make lint` passed. The final I10 rerun also passed, including
+  repeated governance deployment. No skips or expected failures. Phase 5 is complete;
+  data-quality checks and backfill remain for the next phase.

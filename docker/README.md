@@ -165,3 +165,41 @@ counts, orphans, duplicate reconciliation and purchase enrichment through ClickH
 E03 checks MySQL insert/update/delete propagation.
 Integration tests use isolated Testcontainers and unique databases, topics, and groups;
 they read persisted targets and never select from a Kafka engine table.
+
+## Governance and account provisioning
+
+`make apply-sql` installs Phase 5 roles, masked views, partner policies, the analyst
+settings profile, and a quota definition. It creates no application login accounts.
+Use an access administrator to provision authenticated users and assign the appropriate
+default role. Keep credentials outside this repository. The deployment account needs
+access management and the ability to delegate the installed privileges; `role_admin`
+receives that installer's current grants, including the ability to delegate them.
+
+Assign analysts `role_analyst` and explicitly bind their user names to
+`azki_governance_analyst_quota`. The quota starts with `TO NONE` so account provisioning
+can supply the complete analyst user allowlist. Role assignment alone is insufficient
+for quota provisioning in this deployment. Updating that allowlist must retain existing
+analysts. The quota allows 1,000 queries per hour per user; the settings profile limits
+queries to 10 seconds, 10,000 result rows, and 256 MiB. Zero cannot disable these limits.
+Analyst query logging is mandatory and cannot be suppressed by sampling or duration filters.
+Queries over system tables or constants can be exempt from quota accounting; I10 exhausts
+the quota with actual governed-table reads.
+
+Analysts query `gov.purchase_events_masked`. It reads FINAL, excludes deleted rows,
+replaces national ID, phone, policy number, and plate number with `***`, and preserves
+only the allowlisted non-PII product attributes (car value, coverage limit, property value).
+New product attributes require a masking review. Its SQL SECURITY DEFINER executes with
+the deployment account's privileges; retain that account and its source SELECT access.
+Analysts receive no source PII, dictionary, lookup-view, or query-log permissions.
+
+`role_partner_1` and `role_partner_2` have explicit non-PII column grants on
+`mart.purchase_events_enriched`, with server-enforced policies for their partner IDs.
+Read FINAL and filter `_is_deleted = 0` for the current logical snapshot. Partner roles
+must be assigned individually to partner accounts; assigning both combines their access.
+Partner roles do not receive the analyst's global masked view. Engineers can read and
+maintain pipeline tables, including PII, but cannot administer accounts through that role.
+Admins can inspect `system.query_log`; flush logs before an immediate audit query.
+
+SQL under `sql/test_fixtures/governance/` creates passwordless, temporary test users only
+inside disposable integration containers. It is excluded from numbered deployment SQL.
+Tests namespace and remove both database objects and server-wide access entities.

@@ -67,7 +67,7 @@ def kafka(container_network):
 
 @pytest.fixture
 def ch_db(clickhouse):
-    from azki_pipeline.sql_runner import apply_sql
+    from azki_pipeline.sql_runner import apply_sql, load_sql
 
     suffix = uuid4().hex
     databases = {name: f"test_{name}_{suffix}" for name in ("raw", "core", "mart", "dq", "gov")}
@@ -106,6 +106,11 @@ def ch_db(clickhouse):
     finally:
         for name in ("raw", "mart", "dq", "core", "gov"):
             clickhouse.command(f"DROP DATABASE IF EXISTS {databases[name]} SYNC")
+        for query in load_sql(
+            ROOT / "sql/test_fixtures/governance/072_governance_roles_cleanup.sql",
+            database_overrides=databases,
+        ):
+            clickhouse.command(query)
 
 
 @pytest.fixture(scope="session")

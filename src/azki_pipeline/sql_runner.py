@@ -10,6 +10,44 @@ from sqlglot import exp
 _SQL_DIR = Path(__file__).resolve().parents[2] / "sql"
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _NUMBERED_SQL = re.compile(r"(\d+)_.+\.sql\Z")
+_ACCESS_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+_SETTING_VALUE = r"(?:\d+|'QUERY_START')"
+_PRIVILEGE = (
+    r"(?:ALL|CURRENT GRANTS|SELECT|INSERT|ALTER|CREATE TABLE|CREATE VIEW|CREATE DICTIONARY|"
+    r"DROP TABLE|DROP VIEW|DROP DICTIONARY|TRUNCATE|OPTIMIZE|DICTGET)"
+)
+_ACCESS_SQL = re.compile(
+    rf"(?:CREATE ROLE IF NOT EXISTS {_ACCESS_NAME}"
+    rf"|DROP (?:USER|ROLE|QUOTA|SETTINGS PROFILE) IF EXISTS {_ACCESS_NAME}"
+    rf"|ALTER QUOTA {_ACCESS_NAME} TO {_ACCESS_NAME}(?:, {_ACCESS_NAME})*"
+    rf"|GRANT {_PRIVILEGE}(?:, {_PRIVILEGE})* ON (?:\*|{_ACCESS_NAME})\.(?:\*|{_ACCESS_NAME})"
+    rf" TO {_ACCESS_NAME}(?:, {_ACCESS_NAME})*(?: WITH GRANT OPTION)?"
+    rf"|CREATE USER IF NOT EXISTS {_ACCESS_NAME} IDENTIFIED WITH no_password"
+    rf" DEFAULT ROLE {_ACCESS_NAME}"
+    rf"|CREATE ROW POLICY IF NOT EXISTS {_ACCESS_NAME} ON {_ACCESS_NAME}\.{_ACCESS_NAME}"
+    rf" USING (?:partner_id = 'partner_[12]'|1) TO "
+    rf"(?:ALL EXCEPT )?{_ACCESS_NAME}(?:, {_ACCESS_NAME})*"
+    rf"|CREATE SETTINGS PROFILE IF NOT EXISTS {_ACCESS_NAME} SETTINGS "
+    rf"(?:{_ACCESS_NAME} = {_SETTING_VALUE}(?: MIN \d+)?(?: MAX \d+| READONLY)?)(?:, "
+    rf"{_ACCESS_NAME} = {_SETTING_VALUE}(?: MIN \d+)?(?: MAX \d+| READONLY)?)* TO {_ACCESS_NAME}"
+    rf"|CREATE QUOTA IF NOT EXISTS {_ACCESS_NAME} KEYED BY user_name "
+    rf"FOR INTERVAL 1 HOUR MAX queries = \d+ TO {_ACCESS_NAME})\Z",
+    re.IGNORECASE,
+)
+
+
+def _override_access_identifiers(
+    query: str, overrides: dict[str, str], *, include_databases: bool = False
+) -> str:
+    replacements = dict(overrides) if include_databases else {}
+    isolated = overrides.get("gov")
+    for token in sqlglot.tokenize(query, read="clickhouse"):
+        if token.text.startswith(("role_", "azki_governance_")) and isolated and isolated != "gov":
+            replacements[token.text] = f"{token.text}_{isolated}"
+    for token in reversed(sqlglot.tokenize(query, read="clickhouse")):
+        if token.token_type.name in {"VAR", "IDENTIFIER"} and token.text in replacements:
+            query = query[: token.start] + replacements[token.text] + query[token.end + 1 :]
+    return query
 
 
 class SQLClient(Protocol):
@@ -53,12 +91,17 @@ def load_sql(path: str | Path, *, database_overrides: dict[str, str] | None = No
     for statement in sqlglot.parse(Path(path).read_text(encoding="utf-8"), read="clickhouse"):
         if statement is None:
             continue
-        if overrides and isinstance(statement, exp.Command):
-            raise ValueError(
-                f"Cannot safely override databases in unsupported SQL: {Path(path).name}"
-            )
+        if isinstance(statement, exp.Command):
+            query = statement.sql(dialect="clickhouse")
+            if not _ACCESS_SQL.fullmatch(" ".join(query.split())):
+                raise ValueError(f"Cannot execute unsupported SQL: {Path(path).name}")
+            queries.append(_override_access_identifiers(query, overrides, include_databases=True))
+            continue
         _override_databases(statement, overrides)
-        queries.append(statement.sql(dialect="clickhouse"))
+        query = statement.sql(dialect="clickhouse")
+        if isinstance(statement, exp.Grant):
+            query = _override_access_identifiers(query, overrides)
+        queries.append(query)
     return queries
 
 

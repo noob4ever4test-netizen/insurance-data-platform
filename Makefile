@@ -33,4 +33,4 @@ test-e2e:
 lint:
 	$(UV) run ruff check .
 	$(UV) run ruff format --check .
-	$(UV) run python -c 'from pathlib import Path; import sqlglot; [sqlglot.parse(path.read_text(), read="clickhouse") for path in sorted(Path("sql").glob("*.sql")) if path.read_text().strip()]'
+	$(UV) run python -c 'from pathlib import Path; from azki_pipeline.sql_runner import load_sql; [load_sql(path) for path in sorted(Path("sql").glob("*.sql")) if path.read_text().strip()]'

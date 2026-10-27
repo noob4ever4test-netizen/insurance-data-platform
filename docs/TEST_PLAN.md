@@ -48,7 +48,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | C05 | sql/*.sql | deployment, job, and fixture SQL parses with sqlglot ClickHouse dialect; MySQL initialization is excluded | green |
 | C06 | sql/*.sql | every explicit MergeTree has ORDER BY and PARTITION BY; Kafka tables have `kafka_handle_error_mode='stream'` | green |
 | C07 | sql/*.sql | no `SELECT *` inside MVs; aggregate and purchase MVs are installed before Kafka event forwarding starts | green |
-| C08 | 070_governance | PII columns of order tables (`national_id`, `phone`, `plate_no`, `policy_no`) never granted to `role_analyst`; analysts only via `gov.*` | todo |
+| C08 | 070_governance | PII columns of order tables (`national_id`, `phone`, `plate_no`, `policy_no`) never granted to `role_analyst`; analysts only via `gov.*` | green |
 | C09 | compose.yml | all services have healthchecks; images pinned (no `latest`) | green |
 | C10 | contracts | ClickHouse Kafka and persisted event table columns ⊇ contract fields with compatible types | green |
 | C11 | contracts | schemas accept synthetic rows, enforce required fields/types/dates/enum/nonnegative premiums, and allow evolving dimensions | green |
@@ -65,7 +65,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived �
 | I07 | CH | all products enrich one FINAL purchase row with event/user/order/financial fields; enforce ±1 h, full financial identity, and unambiguous session attribution | green |
 | I08 | CH | non-purchase events never enter enriched table | green |
 | I09 | CH | refresh repairs late orders/financial rows, updates/deletes and duplicates; recent scan prunes old partitions, explicit monthly SQL repairs history | green |
-| I10 | CH | governance: analyst sees masked PII, row policy limits partner rows, quota applies | todo |
+| I10 | CH | governance: analyst sees masked PII, row policy limits partner rows, quota applies | green |
 | I11 | Kafka+CH | produce UTC events with additional fields → persisted events with topic, partition, offset | green |
 | I12 | Kafka+CH | malformed JSON or timestamp → `dq.kafka_dead_letter`, pipeline keeps flowing | green |
 | I13 | Kafka+CH / CH | duplicate delivery → one row in FINAL; repeatable partition repair also re-enriches late users, preserves other months, and clears empty months | green |
