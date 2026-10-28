@@ -7,6 +7,18 @@ ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.contract
 
 
+def test_C12_github_readme_links_resolve_and_link_existing_guides():
+    readme = ROOT / "README.md"
+    assert readme.is_file(), "GitHub needs a root README"
+    targets = re.findall(r"\[[^\]]+\]\(([^)]+)\)", readme.read_text())
+    local_targets = {target.split("#", 1)[0] for target in targets if "://" not in target}
+
+    assert {"docker/README.md", "docs/report.md", "docs/TEST_PLAN.md"} <= local_targets
+    for target in local_targets:
+        if target:
+            assert (ROOT / target).exists(), target
+
+
 def test_C12_report_links_resolve_and_phase_evidence_is_preserved():
     report = ROOT / "docs/report.md"
     links = re.findall(r"\[[^\]]+\]\(([^)]+)\)", report.read_text())

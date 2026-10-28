@@ -1,5 +1,8 @@
 # Local streaming stack
 
+See the [project overview](../README.md) for the architecture, quick start, and
+documentation index. This guide covers local operations and recovery procedures.
+
 Run from the repository root with Docker Desktop or Docker Engine and Compose v2:
 
 ```sh
