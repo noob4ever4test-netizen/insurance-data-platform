@@ -6,6 +6,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived â€
 ## Unit (`-m unit`, no Docker)
 | ID | Module | Behaviour | Status |
 |---|---|---|---|
+| U33 | demo | start preserves populated stacks and restores existing optional brokers; stop retains topology; reset requires confirmation; replay waits for committed offsets and fixture keys (including quoted UInt64 JSON); repairs resume consumers after failure; maintenance SQL is allowlisted; DQ displays persisted results on check failure | green |
 | U01 | contracts | valid event row passes `user_event.schema.json` | green |
 | U02 | contracts | parametrized invalid rows fail: missing `event_time`, null `user_id`, bad timestamp, unknown `event_type`, negative `premium_amount` | green |
 | U20 | contracts | `event_key(user_id, session_id, event_time, event_type)` is deterministic and equals the ClickHouse `cityHash64` value for a fixed vector | green |
@@ -35,7 +36,7 @@ Columns follow `docs/data_contract.md` (real headers). `event_key` is derived â€
 | U27 | helpers.eventually | unexpected exceptions propagate immediately | green |
 | U28 | helpers.eventually | invalid timeout or polling interval rejected | green |
 | U29 | connect_client | validates and registers configs; waits for connector/tasks; propagates failures and times out | green |
-| U30 | seed | stable private secrets and synthetic product/financial rows; waits for Kafka snapshot, ClickHouse users, joined orders/financial rows, and matching dictionaries before staging events | green |
+| U30 | seed | stable private secrets and synthetic product/financial rows; reads all snapshot partitions from the beginning without group assignment; waits for ClickHouse users, joined orders/financial rows, and matching dictionaries before staging events | green |
 | U31 | reconcile | validates partition/database identifiers; stages deduped aggregate states and atomically replaces or drops one month | green |
 | U32 | backfill.job | validates options before database access; bounded Kafka batch options; CLI prints JSON and closes resources | green |
 

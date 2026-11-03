@@ -34,6 +34,13 @@ _ACCESS_SQL = re.compile(
     rf"FOR INTERVAL 1 HOUR MAX queries = \d+ TO {_ACCESS_NAME})\Z",
     re.IGNORECASE,
 )
+_MAINTENANCE_SQL = re.compile(
+    r"(?:ATTACH TABLE IF NOT EXISTS raw\.kafka_(?:users|user_events)"
+    r"|DETACH TABLE IF EXISTS raw\.kafka_(?:users|user_events)"
+    r"|SYSTEM (?:STOP|WAIT|START) VIEW mart\.purchase_events_repair_mv"
+    r"|SYSTEM RELOAD DICTIONARY core\.(?:users_dict|purchase_orders_dict))\Z",
+    re.IGNORECASE,
+)
 
 
 def _override_access_identifiers(
@@ -93,7 +100,17 @@ def load_sql(path: str | Path, *, database_overrides: dict[str, str] | None = No
             continue
         if isinstance(statement, exp.Command):
             query = statement.sql(dialect="clickhouse")
-            if not _ACCESS_SQL.fullmatch(" ".join(query.split())):
+            normalized = " ".join(query.split())
+            if _MAINTENANCE_SQL.fullmatch(normalized):
+                queries.append(
+                    re.sub(
+                        r"\b(raw|core|mart)(?=\.)",
+                        lambda match: overrides.get(match[0], match[0]),
+                        query,
+                    )
+                )
+                continue
+            if not _ACCESS_SQL.fullmatch(normalized):
                 raise ValueError(f"Cannot execute unsupported SQL: {Path(path).name}")
             queries.append(_override_access_identifiers(query, overrides, include_databases=True))
             continue

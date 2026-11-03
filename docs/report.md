@@ -6,6 +6,13 @@ data loss. Kafka provides replayable transport; ClickHouse performs the streamin
 transformations. Spark is reserved for bounded recovery. The implementation uses
 synthetic fixtures; confidential source rows remain in gitignored `data/`.
 
+For review sessions, the [demo script guide](demo.md) provides startup with browser
+UIs, SQL result inspection, DQ, replay with monthly reconciliation, and a confirmed
+full local reset. Reset clears source state, transport offsets, and analytical data
+together so CDC snapshots and event processing restart consistently.
+Startup restores existing optional Kafka brokers before seeding, and the snapshot
+probe reads each users partition from the beginning without consumer-group assignment.
+
 See the [architecture diagram](architecture.mmd), [operating guide](../docker/README.md),
 [test plan](TEST_PLAN.md), and [implementation evidence](implementation-notes.md).
 This report describes the completed design; production extensions below are proposals.

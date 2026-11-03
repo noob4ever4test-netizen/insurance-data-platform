@@ -27,6 +27,8 @@ def test_C05_deployment_sql_is_present_and_parses():
                     "070_governance_users.sql",
                     "071_governance_cleanup.sql",
                     "072_governance_roles_cleanup.sql",
+                    "010_pause.sql",
+                    "011_resume.sql",
                 }, path
 
 

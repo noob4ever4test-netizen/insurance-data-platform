@@ -10,7 +10,7 @@ from time import monotonic
 from uuid import uuid4
 
 import clickhouse_connect
-from confluent_kafka import Consumer
+from confluent_kafka import OFFSET_BEGINNING, Consumer, TopicPartition
 
 from azki_pipeline.connect_client import ConnectClient
 from azki_pipeline.contracts import event_key
@@ -132,8 +132,23 @@ def wait_users_snapshot(bootstrap_servers: str, *, timeout: float = 120) -> None
         }
     )
     try:
-        consumer.subscribe(["mysql.azki.users"])
         deadline = monotonic() + timeout
+        while True:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"Users snapshot incomplete; missing {sorted(expected)}")
+            topic = consumer.list_topics("mysql.azki.users", timeout=min(10, remaining)).topics.get(
+                "mysql.azki.users"
+            )
+            if topic is not None and not topic.error and topic.partitions:
+                consumer.assign(
+                    [
+                        TopicPartition("mysql.azki.users", number, OFFSET_BEGINNING)
+                        for number in sorted(topic.partitions)
+                    ]
+                )
+                break
+            _wait(min(0.5, remaining))
         while expected:
             remaining = deadline - monotonic()
             if remaining <= 0:

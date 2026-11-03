@@ -55,6 +55,12 @@ trade-offs, including dictionary lookup costs and materialized-view limitations.
 
 ## Quick start
 
+For an interview walkthrough, see [the demo guide](docs/demo.md). After installing
+dependencies and starting Docker Desktop, `./scripts/demo.sh start` starts the stack,
+seeds an empty event table, shows SQL results, and opens Kafka UI and ClickHouse SQL.
+Use `./scripts/demo.sh dq` for checks/results and `./scripts/demo.sh reset --yes`
+to delete all local Compose data and rebuild the synthetic pipeline from scratch.
+
 ### Prerequisites
 
 - Python **3.11** and **uv**.

@@ -4,6 +4,41 @@ These chronological notes preserve the decisions, red/green results, and measure
 evidence recorded during Phases 0–7. Statements about pending work describe the
 repository at that phase. See [the technical report](report.md) for the final design.
 
+## Interview demo tooling follow-up
+
+- Live troubleshooting found users-topic partitions assigned to stopped optional
+  brokers. Startup now restores existing `kafka-2`/`kafka-3` containers, and demo stop
+  retains containers so that topology can be detected on the next start. Regression
+  tests failed before these changes and pass afterward.
+- The snapshot probe now assigns all users partitions at OFFSET_BEGINNING instead
+  of subscribing through group coordination. U30 still requires all synthetic users
+  before staging events; its subscription-specific assertion was replaced by exact
+  partition/start-offset assertions to reflect the new coordination-free probe.
+- The live retained state also needed a fresh MySQL snapshot, temporarily using
+  `snapshot.mode=always`; subsequent seeding restored `initial`. ClickHouse hit its
+  existing 1 GiB memory limit and was restarted. Replay then completed with **49
+  logical events, 16 enriched purchases**, and masked PII. No volumes were deleted.
+  Final unit and contract verification after these fixes: **259 passed** in 13.92
+  seconds; Ruff checks and formatting passed. Both browser UIs opened successfully.
+
+- Added `scripts/demo.sh` with start, status, UI, results, DQ, replay, reset, and stop
+  commands. Startup preserves populated stacks; reset explicitly requires `--yes`
+  and removes all local Compose volumes before rebuilding the synthetic pipeline.
+- U33 began with a missing-module failure. Additional regression tests exposed
+  unsupported operational SQL and ClickHouse JSON UInt64 strings before fixes.
+  Operational SQL now has a narrow allowlist, preserving rejection of unrelated
+  commands and safe database overrides. Contract coverage explicitly includes the
+  pause/resume files rather than bypassing SQL validation.
+- Replay waits for spool completion, committed event-consumer offsets on every
+  partition, and fixture identities before serialized monthly repairs. Consumer
+  restoration runs in a finally block. DQ queries persisted results after failed
+  checks; the historical fixture's freshness failures remain visible.
+- Final combined unit and contract verification: **256 passed** in 12.19 seconds.
+  The first broad unit run hit sandbox socket restrictions in Spark; final
+  verification ran outside the sandbox with local socket access enabled.
+  Ruff, shell syntax, and Git whitespace checks passed.
+  Docker was unavailable, so no live Compose demo or destructive reset was run.
+
 ## Notes
 
 ### Phase 0: scaffold and data contract

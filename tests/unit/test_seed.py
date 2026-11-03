@@ -74,6 +74,9 @@ def test_U30_snapshot_waits_for_all_synthetic_users(tmp_path, monkeypatch):
         message.value.return_value = json.dumps(make_user(user_id=user_id)).encode()
         messages.append(message)
     consumer = Mock()
+    consumer.list_topics.return_value.topics = {
+        "mysql.azki.users": Mock(error=None, partitions={0: Mock(), 1: Mock(), 2: Mock()})
+    }
     consumer.poll.side_effect = [None, *messages]
     monkeypatch.setattr(MODULE, "Consumer", Mock(return_value=consumer))
 
@@ -81,7 +84,11 @@ def test_U30_snapshot_waits_for_all_synthetic_users(tmp_path, monkeypatch):
 
     assert consumer.poll.call_count == 10
     assert MODULE.Consumer.call_args.args[0]["topic.metadata.refresh.interval.ms"] == 1000
-    consumer.subscribe.assert_called_once_with(["mysql.azki.users"])
+    consumer.subscribe.assert_not_called()
+    assigned = consumer.assign.call_args.args[0]
+    assert [(part.topic, part.partition, part.offset) for part in assigned] == [
+        ("mysql.azki.users", partition, -2) for partition in range(3)
+    ]
     consumer.close.assert_called_once()
 
 
